@@ -9,7 +9,9 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
-func ConsumeFromKafka(bootStrapServer string, groupId string, autoOffset string, topic string) {
+func ConsumeKafkaMessages(bootStrapServer string, groupId string, autoOffset string, topicName string) <-chan *kafka.Message {
+	messages := make(chan *kafka.Message)
+
 	// Kafka consumer configuration
 	config := kafka.ConfigMap{
 		"bootstrap.servers":  bootStrapServer,
@@ -26,7 +28,7 @@ func ConsumeFromKafka(bootStrapServer string, groupId string, autoOffset string,
 	defer consumer.Close()
 
 	// Subscribe to topic(s)
-	topic := topic
+	topic := topicName
 	err = consumer.SubscribeTopics([]string{topic}, nil)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to topic: %s\n", err)
@@ -37,19 +39,26 @@ func ConsumeFromKafka(bootStrapServer string, groupId string, autoOffset string,
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start consuming messages
-ConsumerLoop:
-	for {
-		select {
-		case sig := <-sigchan:
-			log.Printf("Caught signal %v: terminating\n", sig)
-			break ConsumerLoop
-		default:
-			msg, err := consumer.ReadMessage(-1)
-			if err == nil {
-				log.Printf("Received message: %s\n", string(msg.Value))
-			} else {
-				fmt.Printf("Consumer error: %v (%v)\n", err, msg)
+	go func() {
+	ConsumerLoop:
+		for {
+			select {
+			case sig := <-sigchan:
+				log.Printf("Caught signal %v: terminating\n", sig)
+				break ConsumerLoop
+			default:
+				msg, err := consumer.ReadMessage(-1)
+				if err == nil {
+					log.Printf("Received message: %s\n", string(msg.Value))
+					messages <- msg
+				} else {
+					fmt.Printf("Consumer error: %v (%v)\n", err, msg)
+				}
 			}
 		}
-	}
+	}()
+
+	return messages
 }
+
+
