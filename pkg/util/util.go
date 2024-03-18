@@ -22,7 +22,8 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 		configMap = map[string]string{
 			"username": config.Username,
 			"password": config.Password,
-			"url":     config.URL,
+			"url":      config.URL,
+			"index":    config.Index,
 		}
 	}
 	if configFileName == "mysql.json" {
@@ -57,8 +58,8 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			log.Fatalf("Error parsing config JSON: %v", err)
 		}
 		configMap = map[string]string{
-			"broker": config.Broker,
-			"topic": config.Topic,
+			"broker":  config.Broker,
+			"topic":   config.Topic,
 			"groupid": config.GroupId,
 		}
 	}
@@ -71,7 +72,7 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			"url": config.URL,
 			"username": config.Username,
 			"password": config.Password,
-			"queue":     config.Queue,
+			"queue":    config.Queue,
 		}
 	}
 	return configMap
