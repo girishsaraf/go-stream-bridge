@@ -3,7 +3,6 @@ package elastic
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"time"
 
