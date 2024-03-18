@@ -37,7 +37,7 @@ func WriteToMySQL(message string) error {
 	// Execute the prepared statement with the message and current timestamp as parameters
 	_, err = stmt.Exec(message, time.Now())
 	if err != nil {
-		return log.Errorf("error executing MySQL statement: %v", err)
+		return log.Errorf("Error executing MySQL statement: %v", err)
 	}
 
 	log.Printf("Message written to MySQL: %s\n", message)

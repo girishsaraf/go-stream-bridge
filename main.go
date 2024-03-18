@@ -3,12 +3,11 @@ package main
 import (
 	"log"
 	"flag"
-	"fmt"
 	"gostreambridge/internal/stream"
 )
 
 func main() {
-	fmt.Printf("Initializing stream bridge")
+	log.Printf("Initializing stream bridge")
 
 	// Define flags for two arguments
 	upstreamApp := flag.String("upstreamApp", "", "Provide the upstream app name (kafka / rabbitmq)")

@@ -58,7 +58,7 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 					log.Printf("Received message: %s\n", string(msg.Value))
 					messages <- msg
 				} else {
-					fmt.Printf("Consumer error: %v (%v)\n", err, msg)
+					log.Printf("Consumer error: %v (%v)\n", err, msg)
 				}
 			}
 		}
