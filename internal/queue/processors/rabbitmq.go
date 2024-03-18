@@ -1,11 +1,11 @@
 package processors
 
 import (
+	"github.com/streadway/amqp"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"github.com/streadway/amqp"
 
 	"gostreambridge/pkg/util"
 )
@@ -33,11 +33,11 @@ func ConsumeAMQPMessages() <-chan []byte {
 	// Declare a queue
 	q, err := ch.QueueDeclare(
 		amqpConfig["queue"], // name
-		false,        // durable
-		false,        // delete when unused
-		false,        // exclusive
-		false,        // no-wait
-		nil,          // arguments
+		false,               // durable
+		false,               // delete when unused
+		false,               // exclusive
+		false,               // no-wait
+		nil,                 // arguments
 	)
 	if err != nil {
 		log.Fatalf("Failed to declare a queue: %v", err)

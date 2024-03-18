@@ -1,19 +1,17 @@
 package processors
 
 import (
-	"fmt"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
 
 	"gostreambridge/pkg/util"
 )
 
 func ConsumeKafkaMessages() <-chan *kafka.Message {
 	messages := make(chan *kafka.Message)
-
 
 	// Reading configuration
 	kafkaConfig := util.ConvertConfigFileToMap("kafka_consumer.json")
@@ -66,5 +64,3 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 
 	return messages
 }
-
-
