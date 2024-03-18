@@ -9,16 +9,16 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	
 	"gostreambridge/internal/config"
+	"gostreambridge/pkg/util"
 )
 
 func WriteToMySQL(message string) error {
 
-	var mysqlConfig config.MySQLConfig
 	// Reading configuration
 	mysqlConfig = util.ConvertConfigFileToMap("mysql.json")
 	
 	// Construct the DSN (Data Source Name)
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", mysqlConfig.Username, mysqlConfig.Password, mysqlConfig.Host, mysqlConfig.Port, mysqlConfig.Database)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", mysqlConfig["username"], mysqlConfig["password"], mysqlConfig["host"], mysqlConfig["port"], mysqlConfig["database"])
 
 	// Connect to MySQL database
 	db, err := sql.Open("mysql", dsn)
