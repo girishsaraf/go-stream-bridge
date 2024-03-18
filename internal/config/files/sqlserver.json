@@ -1,0 +1,8 @@
+{
+    "username": "sqlserver_user",
+    "password": "sqlserver_password",
+    "host": "localhost",
+    "port": "1433",
+    "database": "my_database"
+  }
+  
