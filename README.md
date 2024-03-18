@@ -40,3 +40,12 @@
 10. **Graceful Shutdown**:
     - Enable graceful shutdown procedures to ensure clean termination of the application.
     - Properly handle in-flight messages and ensure data integrity during shutdown.
+
+### Running the code
+
+Execute the following steps to run the code:
+
+1. `cd` to the root directory.
+2. Update the `config/` directory in `internal/` directory with the right configurations for your application.
+3. Run `go build .`
+4. Run `go run main.go -upstreamApp=valueX -downstreamApp=valueY` and replace `valueX` and `valueY` with the appropriate values.
