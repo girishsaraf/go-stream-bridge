@@ -11,7 +11,6 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 
 	"gostreambridge/pkg/util"
-	"gostreambridge/internal/config"
 )
 
 type Message struct {
@@ -36,7 +35,6 @@ func NewElasticsearchClient(elasticConfig map[string]string) (*elasticsearch.Cli
 
 func WriteToElastic(initialMessage string) {
 
-	var elasticConfig config.ElasticConfig
 	// Reading configuration
 	elasticConfig = util.ConvertConfigFileToMap("elastic.json")
 	index, err := elasticConfig["index"]

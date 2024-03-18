@@ -6,21 +6,20 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/denisenkom/go-mssqldb"
 
-	"gostreambridge/internal/config"
+	"gostreambridge/pkg/util"
 )
 
 
 // WriteToSQLServer writes messages to SQL Server database
 func WriteToSQLServer(message string) error {
 
-	var sqlServerConfig config.SQLServerConfig
 	// Reading configuration
-	sqlServerConfig = util.ConvertConfigFileToMap("sqlserver.json")
+	sqlServerConfig := util.ConvertConfigFileToMap("sqlserver.json")
 
 	// Construct the connection string
-	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%s;database=%s", sqlServerConfig.Host, sqlServerConfig.Username, sqlServerConfig.Password, sqlServerConfig.Port, sqlServerConfig.Database)
+	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%s;database=%s", sqlServerConfig["host"], sqlServerConfig["username"], sqlServerConfig["password"], sqlServerConfig["port"], sqlServerConfig["database"])
 
 	// Connect to SQL Server database
 	db, err := sql.Open("sqlserver", connString)
