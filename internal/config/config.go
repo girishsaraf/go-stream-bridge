@@ -14,6 +14,7 @@ type ElasticConfig struct {
 	URL      string `json:"url"` // URL with port
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Index    string `json:"index"`
 }
 
 // Configuration struct for SQL Server
