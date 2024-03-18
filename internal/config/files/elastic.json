@@ -1,6 +1,7 @@
 {
     "url": "http://localhost:9200",
     "username": "elastic_user",
-    "password": "elastic_password"
+    "password": "elastic_password",
+    "index": "index_name"
   }
   
