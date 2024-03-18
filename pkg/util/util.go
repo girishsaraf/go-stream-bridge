@@ -52,7 +52,7 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			"port":     config.Port,
 		}
 	}
-	if configFileName == "kafka.json" {
+	if configFileName == "kafka_consumer.json" || configFileName == "kafka_producer.json" {
 		var config config.KafkaConfig
 		if err := json.Unmarshal(configData, &config); err != nil {
 			log.Fatalf("Error parsing config JSON: %v", err)
