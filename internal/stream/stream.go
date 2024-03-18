@@ -10,8 +10,8 @@ import (
 	"gostreambridge/internal/queue/processors"
 )
 
-func StartStreamBridge(upstreamQueueType string, downstreamApplication string) {
-	ConsumeMessages(upstreamQueueType)
+func StartStreamBridge(bridgeDetails map[string]string) {
+	ConsumeMessages(bridgeDetails["upstreamApp"])
 }
 
 func ConsumeMessages(upstreamQueueType string) {
