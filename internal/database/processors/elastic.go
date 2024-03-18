@@ -1,9 +1,10 @@
-package elastic
+package database
 
 import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
@@ -35,21 +36,12 @@ func NewElasticsearchClient(elasticConfig map[string]string) (*elasticsearch.Cli
 func WriteToElastic(initialMessage string) {
 
 	// Reading configuration
-	elasticConfig = util.ConvertConfigFileToMap("elastic.json")
+	elasticConfig := util.ConvertConfigFileToMap("elastic.json")
 	index, err := elasticConfig["index"]
-	if err != nil {
-		log.Fatalf("Error while reading config: %v", err)
-	}
 
 	// Initialize Elasticsearch client
-	esClient, err := NewElasticsearchClient(elasticConfig)
-	if err != nil {
-		log.Fatalf("Error creating Elasticsearch client: %s", err)
-	}
-	
-	// Initialize Elasticsearch client
-	esClient, err := elasticsearch.NewDefaultClient()
-	if err != nil {
+	esClient, clientErr := NewElasticsearchClient(elasticConfig)
+	if clientErr != nil {
 		log.Fatalf("Error creating Elasticsearch client: %s", err)
 	}
 
@@ -60,13 +52,13 @@ func WriteToElastic(initialMessage string) {
 	}
 
 	// Marshal the message struct to JSON
-	messageJSON, err := json.Marshal(message)
-	if err != nil {
+	messageJSON, jsonErr := json.Marshal(message)
+	if jsonErr != nil {
 		log.Fatalf("Error marshaling message to JSON: %s", err)
 	}
 
 	// Add the message JSON to Elasticsearch index
-	if err := indexMessage(esClient, indexName, string(messageJSON)); err != nil {
+	if err := indexMessage(esClient, index, string(messageJSON)); err != nil {
 		log.Fatalf("Error indexing message: %s", err)
 	}
 
@@ -79,20 +71,20 @@ func indexMessage(client *elasticsearch.Client, indexName, messageJSON string) e
 	req := esapi.IndexRequest{
 		Index:      indexName,
 		DocumentID: "", // Document ID is optional, Elasticsearch generates one if not provided
-		Body:       esapi.BodyString(messageJSON),
+		Body:       strings.NewReader(messageJSON),
 		Refresh:    "true",
 	}
 
 	// Perform the request
 	res, err := req.Do(context.Background(), client)
 	if err != nil {
-		return log.Errorf("Error performing request: %s", err)
+		log.Fatalf("Error performing request: %s", err)
 	}
 	defer res.Body.Close()
 
 	// Check response status
 	if res.IsError() {
-		return log.Errorf("Error indexing document: %s", res.Status())
+		log.Fatalf("Error indexing document: %s", res.Status())
 	}
 
 	return nil
