@@ -1,13 +1,13 @@
 package stream
 
 import (
-	"syscall"
-	"os"
-	"os/signal"
-	"log"
-	"time"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"gostreambridge/internal/queue/processors"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func StartStreamBridge(bridgeDetails map[string]string) {
@@ -17,22 +17,22 @@ func StartStreamBridge(bridgeDetails map[string]string) {
 func ConsumeMessages(upstreamQueueType string) {
 
 	switch upstreamQueueType {
-		case "kafka":
-			// Create a Kafka message consumer
-			messages := processors.ConsumeKafkaMessages()
-			// Process each message
-			for msg := range messages {
-				ProcessKafkaMessage(msg)
-			}
-		case "rabbitmq":
-			// Create a Kafka message consumer
-			messages := processors.ConsumeAMQPMessages()
-			// Process each message
-			for msg := range messages {
-				ProcessAMQPMessage(msg)
-			}
-		default:
-			log.Fatalf("Unsupported message queue type: %s", upstreamQueueType)
+	case "kafka":
+		// Create a Kafka message consumer
+		messages := processors.ConsumeKafkaMessages()
+		// Process each message
+		for msg := range messages {
+			ProcessKafkaMessage(msg)
+		}
+	case "rabbitmq":
+		// Create a Kafka message consumer
+		messages := processors.ConsumeAMQPMessages()
+		// Process each message
+		for msg := range messages {
+			ProcessAMQPMessage(msg)
+		}
+	default:
+		log.Fatalf("Unsupported message queue type: %s", upstreamQueueType)
 	}
 
 	// Wait for termination signal
@@ -41,14 +41,14 @@ func ConsumeMessages(upstreamQueueType string) {
 	<-sig
 }
 
-// Simulating message processing
+// ProcessAMQPMessage Simulating message processing
 func ProcessAMQPMessage(msg []byte) {
 	// Simulating processing time
 	time.Sleep(2 * time.Second)
 	log.Printf("Processed message: %s\n", string(msg))
 }
 
-// Simulating message processing
+// ProcessKafkaMessage Simulating message processing
 func ProcessKafkaMessage(msg *kafka.Message) {
 	// Simulating processing time
 	time.Sleep(2 * time.Second)
