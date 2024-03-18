@@ -1,0 +1,7 @@
+{
+    "url": "amqp://guest:guest@localhost:5672",
+    "username": "rabbitmq_user",
+    "password": "rabbitmq_password",
+    "queue": "rabbitmq_queue"
+  }
+  
