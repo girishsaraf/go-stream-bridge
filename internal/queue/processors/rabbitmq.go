@@ -6,13 +6,18 @@ import (
 	"os/signal"
 	"syscall"
 	"github.com/streadway/amqp"
+
+	"gostreambridge/pkg/util"
 )
 
-func ConsumeAMQPMessages(amqpServer string, queueName string) <-chan []byte {
+func ConsumeAMQPMessages() <-chan []byte {
 	messages := make(chan []byte)
 
+	// Reading configuration
+	amqpConfig := util.ConvertConfigFileToMap("rabbitmq.json")
+
 	// Connect to RabbitMQ server
-	conn, err := amqp.Dial(amqpServer)
+	conn, err := amqp.Dial(amqpConfig["url"])
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
@@ -27,7 +32,7 @@ func ConsumeAMQPMessages(amqpServer string, queueName string) <-chan []byte {
 
 	// Declare a queue
 	q, err := ch.QueueDeclare(
-		queueName, // name
+		amqpConfig["queue"], // name
 		false,        // durable
 		false,        // delete when unused
 		false,        // exclusive

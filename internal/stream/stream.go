@@ -19,14 +19,14 @@ func ConsumeMessages(upstreamQueueType string) {
 	switch upstreamQueueType {
 		case "kafka":
 			// Create a Kafka message consumer
-			messages := processors.ConsumeKafkaMessages("", "", "", "")
+			messages := processors.ConsumeKafkaMessages()
 			// Process each message
 			for msg := range messages {
 				ProcessKafkaMessage(msg)
 			}
 		case "rabbitmq":
 			// Create a Kafka message consumer
-			messages := processors.ConsumeAMQPMessages("", "")
+			messages := processors.ConsumeAMQPMessages()
 			// Process each message
 			for msg := range messages {
 				ProcessAMQPMessage(msg)

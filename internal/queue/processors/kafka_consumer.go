@@ -7,16 +7,22 @@ import (
 	"os/signal"
 	"syscall"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+
+	"gostreambridge/pkg/util"
 )
 
-func ConsumeKafkaMessages(bootStrapServer string, groupId string, autoOffset string, topicName string) <-chan *kafka.Message {
+func ConsumeKafkaMessages() <-chan *kafka.Message {
 	messages := make(chan *kafka.Message)
+
+
+	// Reading configuration
+	kafkaConfig := util.ConvertConfigFileToMap("kafka_consumer.json")
 
 	// Kafka consumer configuration
 	config := kafka.ConfigMap{
-		"bootstrap.servers":  bootStrapServer,
-		"group.id":           groupId,
-		"auto.offset.reset":  autoOffset,
+		"bootstrap.servers":  kafkaConfig["brokers"],
+		"group.id":           kafkaConfig["groupId"],
+		"auto.offset.reset":  "earliest",
 		"enable.auto.commit": "false",
 	}
 
@@ -28,7 +34,7 @@ func ConsumeKafkaMessages(bootStrapServer string, groupId string, autoOffset str
 	defer consumer.Close()
 
 	// Subscribe to topic(s)
-	topic := topicName
+	topic := kafkaConfig["topic"]
 	err = consumer.SubscribeTopics([]string{topic}, nil)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to topic: %s\n", err)
