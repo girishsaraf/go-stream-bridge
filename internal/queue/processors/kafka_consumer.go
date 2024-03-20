@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"gostreambridge/pkg/util"
 )
@@ -42,6 +43,8 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
 
+	maxRetries := 5
+
 	// Start consuming messages
 	go func() {
 	ConsumerLoop:
@@ -51,13 +54,16 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 				log.Printf("Caught signal %v: terminating\n", sig)
 				break ConsumerLoop
 			default:
-				msg, err := consumer.ReadMessage(-1)
-				if err == nil {
-					log.Printf("Received message: %s\n", string(msg.Value))
+				for i := 0; i < maxRetries; i++ {
+					msg, err := consumer.ReadMessage(-1)
+					if err != nil {
+						log.Printf("Error reading message from Kafka: %v, retrying...\n", err)
+						continue
+					}
 					messages <- msg
-				} else {
-					log.Printf("Consumer error: %v (%v)\n", err, msg)
+					break
 				}
+				time.Sleep(5 * time.Second) // Wait before retrying
 			}
 		}
 	}()
