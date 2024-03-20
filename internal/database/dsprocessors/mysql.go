@@ -1,4 +1,4 @@
-package database
+package dsprocessors
 
 import (
 	"database/sql"
@@ -31,12 +31,17 @@ func WriteToMySQL(message string) error {
 	}
 	defer stmt.Close()
 
-	// Execute the prepared statement with the message and current timestamp as parameters
-	_, err = stmt.Exec(message, time.Now())
-	if err != nil {
-		log.Fatalf("Error executing MySQL statement: %v", err)
+	// Execute the prepared statement with the message and current timestamp as parameters with retry
+	maxRetries := 5 // Number of retry attempts
+	for i := 0; i < maxRetries; i++ {
+		_, err = stmt.Exec(message, time.Now())
+		if err == nil {
+			log.Printf("Message written to MySQL: %s\n", message)
+			return nil
+		}
+		log.Printf("Error executing MySQL statement: %v, retrying...\n", err)
+		time.Sleep(2 * time.Second) // Wait before retrying
 	}
 
-	log.Printf("Message written to MySQL: %s\n", message)
-	return nil
+	return fmt.Errorf("error executing MySQL statement after %d retries: %v", maxRetries, err)
 }

@@ -1,8 +1,9 @@
-package database
+package dsprocessors
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ func NewElasticsearchClient(elasticConfig map[string]string) (*elasticsearch.Cli
 	return esClient, nil
 }
 
-func WriteToElastic(initialMessage string) {
+func WriteToElastic(initialMessage string) error {
 
 	// Reading configuration
 	elasticConfig := util.ConvertConfigFileToMap("elastic.json")
@@ -57,12 +58,19 @@ func WriteToElastic(initialMessage string) {
 		log.Fatalf("Error marshaling message to JSON: %s", err)
 	}
 
-	// Add the message JSON to Elasticsearch index
-	if err := indexMessage(esClient, index, string(messageJSON)); err != nil {
-		log.Fatalf("Error indexing message: %s", err)
+	maxRetries := 5
+	// Retry indexing message with specified number of retries
+	for i := 0; i < maxRetries; i++ {
+		if err := indexMessage(esClient, index, string(messageJSON)); err != nil {
+			log.Printf("Error indexing message (attempt %d/%d): %s\n", i+1, maxRetries, err)
+			time.Sleep(2 * time.Second) // Wait before retrying
+			continue
+		}
+		log.Println("Message indexed successfully")
+		return nil
 	}
 
-	log.Println("Message indexed successfully")
+	return errors.New("failed to index message after maximum retries")
 }
 
 // indexMessage indexes the message JSON to the specified Elasticsearch index
