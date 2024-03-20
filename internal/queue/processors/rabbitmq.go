@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"gostreambridge/pkg/util"
 )
@@ -16,10 +17,19 @@ func ConsumeAMQPMessages() <-chan []byte {
 	// Reading configuration
 	amqpConfig := util.ConvertConfigFileToMap("rabbitmq.json")
 
-	// Connect to RabbitMQ server
-	conn, err := amqp.Dial(amqpConfig["url"])
+	var conn *amqp.Connection
+	var err error
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		conn, err = amqp.Dial(amqpConfig["url"])
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v\n", i+1, maxRetries, err)
+		time.Sleep(2 * time.Second) // Wait before retrying
+	}
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		log.Fatalf("Failed to connect to RabbitMQ after %d retries: %v", maxRetries, err)
 	}
 	defer conn.Close()
 
@@ -43,18 +53,26 @@ func ConsumeAMQPMessages() <-chan []byte {
 		log.Fatalf("Failed to declare a queue: %v", err)
 	}
 
-	// Consume messages from the queue
-	msgs, err := ch.Consume(
-		q.Name, // queue
-		"",     // consumer
-		true,   // auto-ack
-		false,  // exclusive
-		false,  // no-local
-		false,  // no-wait
-		nil,    // args
-	)
+	// Retry consuming messages from the queue
+	var msgs <-chan amqp.Delivery
+	for i := 0; i < maxRetries; i++ {
+		msgs, err = ch.Consume(
+			q.Name, // queue
+			"",     // consumer
+			true,   // auto-ack
+			false,  // exclusive
+			false,  // no-local
+			false,  // no-wait
+			nil,    // args
+		)
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to register a consumer (attempt %d/%d): %v\n", i+1, maxRetries, err)
+		time.Sleep(2 * time.Second) // Wait before retrying
+	}
 	if err != nil {
-		log.Fatalf("Failed to register a consumer: %v", err)
+		log.Fatalf("Failed to register a consumer after %d retries: %v", maxRetries, err)
 	}
 
 	// Channel to handle OS signals
