@@ -1,13 +1,19 @@
 package main
 
 import (
-	"log"
 	"flag"
+	"os"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"gostreambridge/internal/stream"
 )
 
 func main() {
-	log.Printf("Initializing stream bridge")
+	// Set up zerolog with console output and human-readable format
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).With().Caller().Logger()
+
+	log.Info().Msg("Initializing stream bridge")
 
 	// Define flags for two arguments
 	upstreamApp := flag.String("upstreamApp", "", "Provide the upstream app name (kafka / rabbitmq)")
@@ -18,15 +24,14 @@ func main() {
 
 	// Check if both arguments are provided
 	if *upstreamApp == "" || *downstreamApp == "" {
-		log.Printf("Usage: go run main.go -upstreamApp=valueX -downstreamApp=valueY")
-		return
+		log.Fatal().Msg("Usage: go run main.go -upstreamApp=valueX -downstreamApp=valueY")
 	}
 
 	// Convert arguments to map
-	argMap := make(map[string]string)
-	argMap["upstreamApp"] = *upstreamApp
-	argMap["downstreamApp"] = *downstreamApp
-
+	argMap := map[string]string{
+		"upstreamApp":   *upstreamApp,
+		"downstreamApp": *downstreamApp,
+	}
 
 	stream.StartStreamBridge(argMap)
 }
