@@ -15,7 +15,7 @@ func ConsumeAMQPMessages() <-chan []byte {
 	messages := make(chan []byte)
 
 	// Reading configuration
-	amqpConfig := util.ConvertConfigFileToMap("rabbitmq.json")
+	amqpConfig, _ := util.ConvertConfigFileToMap("rabbitmq.json")
 
 	var conn *amqp.Connection
 	var err error

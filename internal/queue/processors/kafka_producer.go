@@ -12,7 +12,7 @@ import (
 func WriteToKafka(message string) error {
 
 	// Reading configuration
-	kafkaConfig := util.ConvertConfigFileToMap("kafka_producer.json")
+	kafkaConfig, _ := util.ConvertConfigFileToMap("kafka_producer.json")
 
 	// Kafka producer configuration
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{

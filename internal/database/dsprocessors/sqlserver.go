@@ -13,7 +13,7 @@ import (
 func WriteToSQLServer(message string) error {
 
 	// Reading configuration
-	sqlServerConfig := util.ConvertConfigFileToMap("sqlserver.json")
+	sqlServerConfig, _ := util.ConvertConfigFileToMap("sqlserver.json")
 
 	// Construct the connection string
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%s;database=%s", sqlServerConfig["host"], sqlServerConfig["username"], sqlServerConfig["password"], sqlServerConfig["port"], sqlServerConfig["database"])

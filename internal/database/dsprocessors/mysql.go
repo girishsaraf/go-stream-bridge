@@ -12,7 +12,7 @@ import (
 func WriteToMySQL(message string) error {
 
 	// Reading configuration
-	mysqlConfig := util.ConvertConfigFileToMap("mysql.json")
+	mysqlConfig, _ := util.ConvertConfigFileToMap("mysql.json")
 
 	// Construct the DSN (Data Source Name)
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", mysqlConfig["username"], mysqlConfig["password"], mysqlConfig["host"], mysqlConfig["port"], mysqlConfig["database"])

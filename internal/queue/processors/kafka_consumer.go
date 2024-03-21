@@ -15,7 +15,7 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 	messages := make(chan *kafka.Message)
 
 	// Reading configuration
-	kafkaConfig := util.ConvertConfigFileToMap("kafka_consumer.json")
+	kafkaConfig, _ := util.ConvertConfigFileToMap("kafka_consumer.json")
 
 	// Kafka consumer configuration
 	config := kafka.ConfigMap{
