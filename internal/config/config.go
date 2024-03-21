@@ -19,8 +19,8 @@ type SQLServerConfig struct {
 	DBConfig
 }
 
-// CommonConfig defines common configuration fields
-type CommonConfig struct {
+// CommonDBConfig defines common configuration fields
+type CommonDBConfig struct {
 	URL      string `json:"url"`
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -28,13 +28,13 @@ type CommonConfig struct {
 
 // ElasticConfig Configuration struct for Elastic
 type ElasticConfig struct {
-	CommonConfig
+	CommonDBConfig
 	Index string `json:"index"`
 }
 
 // RabbitMQConfig Configuration struct for RabbitMQ
 type RabbitMQConfig struct {
-	CommonConfig
+	CommonDBConfig
 	Queue string `json:"queue"`
 }
 
