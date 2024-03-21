@@ -2,23 +2,28 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"gostreambridge/internal/config"
-	"log"
 	"os"
+	"path/filepath"
 )
 
-func ConvertConfigFileToMap(configFileName string) map[string]string {
+// ConvertConfigFileToMap reads a configuration file and converts it to a map
+func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 	configMap := make(map[string]string)
+
 	// Read config file
-	configData, err := os.ReadFile("internal/config/files/" + configFileName)
+	configData, err := os.ReadFile(filepath.Join("internal", "config", "files", configFileName))
 	if err != nil {
-		log.Fatalf("Error reading config file: %v", err)
+		return nil, fmt.Errorf("error reading config file: %v", err)
 	}
+
+	// Unmarshal JSON based on config file type
 	switch configFileName {
 	case "elastic.json":
 		var currentConfig config.ElasticConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			log.Fatalf("Error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %v", err)
 		}
 		configMap = map[string]string{
 			"username": currentConfig.Username,
@@ -26,10 +31,10 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			"url":      currentConfig.URL,
 			"index":    currentConfig.Index,
 		}
-	case "mysql.json":
-		var currentConfig config.MySQLConfig
+	case "mysql.json", "sqlserver.json":
+		var currentConfig config.DBConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			log.Fatalf("Error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %v", err)
 		}
 		configMap = map[string]string{
 			"database": currentConfig.Database,
@@ -38,23 +43,10 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			"host":     currentConfig.Host,
 			"port":     currentConfig.Port,
 		}
-	case "sqlserver.json":
-		var currentConfig config.SQLServerConfig
-		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			log.Fatalf("Error parsing config JSON: %v", err)
-		}
-		configMap = map[string]string{
-			"database": currentConfig.Database,
-			"username": currentConfig.Username,
-			"password": currentConfig.Password,
-			"host":     currentConfig.Host,
-			"port":     currentConfig.Port,
-		}
-	case "kafka_consumer.json":
-	case "kafka_producer.json":
+	case "kafka_consumer.json", "kafka_producer.json":
 		var currentConfig config.KafkaConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			log.Fatalf("Error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %v", err)
 		}
 		configMap = map[string]string{
 			"broker":  currentConfig.Broker,
@@ -64,7 +56,7 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 	case "rabbitmq.json":
 		var currentConfig config.RabbitMQConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			log.Fatalf("Error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %v", err)
 		}
 		configMap = map[string]string{
 			"url":      currentConfig.URL,
@@ -72,6 +64,9 @@ func ConvertConfigFileToMap(configFileName string) map[string]string {
 			"password": currentConfig.Password,
 			"queue":    currentConfig.Queue,
 		}
+	default:
+		return nil, fmt.Errorf("unsupported config file type: %s", configFileName)
 	}
-	return configMap
+
+	return configMap, nil
 }
