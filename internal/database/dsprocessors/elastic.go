@@ -37,7 +37,7 @@ func NewElasticsearchClient(elasticConfig map[string]string) (*elasticsearch.Cli
 func WriteToElastic(initialMessage string) error {
 
 	// Reading configuration
-	elasticConfig := util.ConvertConfigFileToMap("elastic.json")
+	elasticConfig, _ := util.ConvertConfigFileToMap("elastic.json")
 	index, err := elasticConfig["index"]
 
 	// Initialize Elasticsearch client
