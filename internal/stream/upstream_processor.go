@@ -2,7 +2,8 @@ package stream
 
 import (
 	"gostreambridge/internal/queue/processors"
-	"log"
+
+	"github.com/rs/zerolog/log"
 )
 
 // KafkaStreamBridge implements the StreamBridge interface for Kafka
@@ -34,5 +35,5 @@ func ProcessMessage(msg string, downstreamApp string) {
 		log.Printf("Error processing message: %v", err)
 		return
 	}
-	log.Printf("Processed message: %s\n", string(msg))
+	log.Printf("Processed message: %s\n", msg)
 }
