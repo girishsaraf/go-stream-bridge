@@ -39,32 +39,33 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 		log.Fatalf("Failed to subscribe to topic: %s\n", err)
 	}
 
-	// Channel to handle OS signals
-	sigchan := make(chan os.Signal, 1)
-	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
-
 	maxRetries := 5
 
 	// Start consuming messages
 	go func() {
-	ConsumerLoop:
 		for {
-			select {
-			case sig := <-sigchan:
-				log.Printf("Caught signal %v: terminating\n", sig)
-				break ConsumerLoop
-			default:
-				for i := 0; i < maxRetries; i++ {
-					msg, err := consumer.ReadMessage(-1)
-					if err != nil {
-						log.Printf("Error reading message from Kafka: %v, retrying...\n", err)
-						continue
-					}
-					messages <- msg
-					break
+			for i := 0; i < maxRetries; i++ {
+				msg, err := consumer.ReadMessage(-1)
+				if err != nil {
+					log.Printf("Error reading message from Kafka: %v, retrying...\n", err)
+					continue
 				}
-				time.Sleep(5 * time.Second) // Wait before retrying
+				messages <- msg
+				break
 			}
+			time.Sleep(5 * time.Second) // Wait before retrying
+		}
+	}()
+
+	// Handle OS signals in a separate goroutine
+	go func() {
+		sigchan := make(chan os.Signal, 1)
+		signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
+		for sig := range sigchan {
+			log.Printf("Caught signal %v: terminating\n", sig)
+			// Close consumer and exit
+			consumer.Close()
+			os.Exit(1)
 		}
 	}()
 

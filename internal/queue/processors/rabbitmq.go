@@ -87,5 +87,15 @@ func ConsumeAMQPMessages() <-chan []byte {
 		}
 	}()
 
+	// Handle OS signals in a separate goroutine
+	go func() {
+		for sig := range sigchan {
+			log.Printf("Caught signal %v: terminating\n", sig)
+			// Close channel and exit
+			close(messages)
+			os.Exit(1)
+		}
+	}()
+
 	return messages
 }
