@@ -51,7 +51,7 @@ func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 		configMap = map[string]string{
 			"broker":  currentConfig.Broker,
 			"topic":   currentConfig.Topic,
-			"groupid": currentConfig.GroupId,
+			"groupId": currentConfig.GroupId,
 		}
 	case "rabbitmq.json":
 		var currentConfig config.RabbitMQConfig
