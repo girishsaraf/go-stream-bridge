@@ -42,5 +42,5 @@ type RabbitMQConfig struct {
 type KafkaConfig struct {
 	Broker  string `json:"brokers"` // Broker with port
 	Topic   string `json:"topic"`
-	GroupId string `json:"groupid"`
+	GroupId string `json:"groupId"`
 }
