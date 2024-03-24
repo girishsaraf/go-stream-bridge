@@ -17,7 +17,7 @@ type MySQLProcessor struct{}
 
 // ProcessMessage processes the message for MySQL
 func (m MySQLProcessor) ProcessMessage(message string) error {
-	return dsprocessors.WriteToMySQL(message)
+	return dsprocessors.WriteToDatabase("mysql", "mysql.json", message)
 }
 
 // SQLServerProcessor implements the DownstreamProcessor interface for SQL Server
@@ -25,7 +25,7 @@ type SQLServerProcessor struct{}
 
 // ProcessMessage processes the message for SQL Server
 func (s SQLServerProcessor) ProcessMessage(message string) error {
-	return dsprocessors.WriteToSQLServer(message)
+	return dsprocessors.WriteToDatabase("sqlserver", "sqlserver.json", message)
 }
 
 // ElasticProcessor implements the DownstreamProcessor interface for Elasticsearch
