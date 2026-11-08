@@ -1,4 +1,5 @@
-// Package retry provides a small context-aware retry helper shared by sinks.
+// Package retry provides a small context-aware retry helper shared by sources,
+// sinks, and the stream pipeline.
 package retry
 
 import (
@@ -14,18 +15,22 @@ type Policy struct {
 	MaxDelay  time.Duration
 	// OnRetry is called after a failed attempt and before the next one.
 	OnRetry func(attempt int, err error)
+	// Abort, when non-nil, stops retrying immediately when it returns true.
+	// The original error is returned unwrapped.
+	Abort func(error) bool
 }
 
-// Default returns the standard policy used by downstream sinks.
+// Default returns the standard retry policy used by the pipeline.
 func Default() Policy {
 	return Policy{
 		Attempts:  5,
 		BaseDelay: 2 * time.Second,
-		MaxDelay:  10 * time.Second,
+		MaxDelay:  30 * time.Second,
 	}
 }
 
-// Do runs fn until it succeeds, the attempt limit is reached, or ctx is cancelled.
+// Do runs fn until it succeeds, the attempt limit is reached, ctx is
+// cancelled, or Abort reports a permanent error.
 func (p Policy) Do(ctx context.Context, fn func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -56,6 +61,10 @@ func (p Policy) Do(ctx context.Context, fn func(context.Context) error) error {
 		}
 		lastErr = err
 
+		if p.Abort != nil && p.Abort(err) {
+			return err
+		}
+
 		if attempt == attempts {
 			break
 		}
@@ -76,5 +85,5 @@ func (p Policy) Do(ctx context.Context, fn func(context.Context) error) error {
 		}
 	}
 
-	return fmt.Errorf("retry after %d attempts: %w", attempts, lastErr)
+	return fmt.Errorf("operation failed after %d attempts: %w", attempts, lastErr)
 }
