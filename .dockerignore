@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+bin
+dist
+data
+*.log
+coverage.out
+coverage.html
+gostreambridge
