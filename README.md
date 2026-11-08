@@ -12,7 +12,7 @@
 
 2. **Consume Messages**:
    - Listen for incoming messages from the subscribed queue(s).
-   - Handle message consumption in a concurrent and efficient manner.
+   - Process messages sequentially, preserving broker ordering, with backpressure from the downstream sink.
 
 3. **Logging and Monitoring**:
    - Logging of important events, errors, and informational messages.
@@ -21,8 +21,9 @@
    - Write processed data to a downstream datastore (e.g., database, cache, file system, messaging queues).
    - Ensure data integrity and reliability during the persistence process.
 
-5. **Concurrency Management**:
-   - Efficiently handle concurrent message processing using goroutines and channels.
+5. **Client Lifecycle Management**:
+   - Create upstream consumers and downstream clients once and reuse them across messages.
+   - Close connections and flush pending writes during graceful shutdown.
 
 6. **Configuration**:
    - Allow configuration through configuration files and command-line arguments.
@@ -35,9 +36,19 @@
 Execute the following steps to run the code:
 
 1. `cd` to the root directory.
-2. Update the `config/` directory in `internal/` directory with the right configurations for your application.
+2. Update the JSON files in `internal/config/files/` with the right configurations for your application.
 3. Run `go build .`
-4. Run `go run main.go -upstreamApp=valueX -downstreamApp=valueY` and replace `valueX` and `valueY` with the appropriate values.
+4. Run `go run main.go -upstreamApp=valueX -downstreamApp=valueY` and replace `valueX` and `valueY` with the appropriate values. Use `-configDir=/path/to/config` (or `STREAM_BRIDGE_CONFIG_DIR`) to load configuration files from another directory.
+
+### Database setup
+
+Apply `internal/config/files/mysql.sql` or `internal/config/files/sqlserver.sql` before using the corresponding database sink.
+
+### Delivery semantics
+
+- **Kafka**: offsets are committed only after the downstream write succeeds. Uncommitted messages are replayed on restart.
+- **RabbitMQ**: deliveries are acknowledged only after a successful write; failed deliveries are requeued.
+- Duplicate writes are possible if a failure happens after the downstream commit but before the offset/ack is recorded. Make the downstream sink idempotent if duplicates are unacceptable.
 
 ### Kafka Upstream and Downstream Run steps
 
