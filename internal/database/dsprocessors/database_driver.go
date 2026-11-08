@@ -1,21 +1,34 @@
 package dsprocessors
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"gostreambridge/pkg/util"
-	"log"
 	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"gostreambridge/pkg/util"
 )
 
-func WriteToDatabase(driver, configFile, message string) error {
-	// Read database configuration from file
+const (
+	dbMaxRetries  = 5
+	dbRetryDelay  = 2 * time.Second
+	dbPingTimeout = 10 * time.Second
+)
+
+// WriteToDatabase writes a message to the configured MySQL or SQL Server
+// database. The message is committed to the database before returning nil.
+func WriteToDatabase(ctx context.Context, driver, configFile, message string) error {
 	dbConfig, err := util.ConvertConfigFileToMap(configFile)
 	if err != nil {
-		return fmt.Errorf("error reading %s config file: %v", driver, err)
+		return fmt.Errorf("load %s config file: %w", driver, err)
 	}
 
-	// Construct DSN/connection string
+	if dbConfig["host"] == "" || dbConfig["database"] == "" {
+		return fmt.Errorf("%s config: host and database must not be empty", driver)
+	}
+
 	var dsn string
 	switch driver {
 	case "mysql":
@@ -26,31 +39,67 @@ func WriteToDatabase(driver, configFile, message string) error {
 		return fmt.Errorf("unsupported database driver: %s", driver)
 	}
 
-	// Connect to the database
+	query, err := insertStatement(driver)
+	if err != nil {
+		return err
+	}
+
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
-		return fmt.Errorf("error connecting to %s database: %v", driver, err)
+		return fmt.Errorf("open %s database: %w", driver, err)
 	}
 	defer db.Close()
 
-	// Prepare statement to insert message into table with timestamp
-	stmt, err := db.Prepare("INSERT INTO messages (message, timestamp) VALUES (?, ?)")
+	pingCtx, cancelPing := context.WithTimeout(ctx, dbPingTimeout)
+	defer cancelPing()
+	if err := db.PingContext(pingCtx); err != nil {
+		return fmt.Errorf("ping %s database: %w", driver, err)
+	}
+
+	stmt, err := db.PrepareContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("error preparing %s statement: %v", driver, err)
+		return fmt.Errorf("prepare %s statement: %w", driver, err)
 	}
 	defer stmt.Close()
 
-	// Execute the prepared statement with the message and current timestamp as parameters with retry
-	maxRetries := 5 // Number of retry attempts
-	for i := 0; i < maxRetries; i++ {
-		_, err = stmt.Exec(message, time.Now())
-		if err == nil {
-			log.Printf("Message written to %s: %s\n", driver, message)
+	var lastErr error
+	for attempt := 1; attempt <= dbMaxRetries; attempt++ {
+		_, execErr := stmt.ExecContext(ctx, message, time.Now())
+		if execErr == nil {
 			return nil
 		}
-		log.Printf("Error executing %s statement: %v, retrying...\n", driver, err)
-		time.Sleep(2 * time.Second) // Wait before retrying
+		lastErr = execErr
+
+		if attempt == dbMaxRetries {
+			break
+		}
+
+		log.Warn().
+			Err(lastErr).
+			Str("driver", driver).
+			Int("attempt", attempt).
+			Int("maxAttempts", dbMaxRetries).
+			Msg("failed to execute insert")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(dbRetryDelay):
+		}
 	}
 
-	return fmt.Errorf("error executing %s statement after %d retries: %v", driver, maxRetries, err)
+	return fmt.Errorf("insert into %s after %d attempts: %w", driver, dbMaxRetries, lastErr)
+}
+
+// insertStatement returns the driver-specific INSERT statement. The
+// "sqlserver" driver uses native @pN placeholders; it does not translate "?".
+func insertStatement(driver string) (string, error) {
+	switch driver {
+	case "mysql":
+		return "INSERT INTO messages (message, timestamp) VALUES (?, ?)", nil
+	case "sqlserver":
+		return "INSERT INTO messages (message, timestamp) VALUES (@p1, @p2)", nil
+	default:
+		return "", fmt.Errorf("unsupported database driver: %s", driver)
+	}
 }

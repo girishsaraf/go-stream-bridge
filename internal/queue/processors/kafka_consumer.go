@@ -1,25 +1,40 @@
 package processors
 
 import (
-	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
+	"context"
+	"errors"
+	"fmt"
 	"time"
+
+	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/rs/zerolog/log"
 
 	"gostreambridge/pkg/util"
 )
 
-func ConsumeKafkaMessages() <-chan *kafka.Message {
-	messages := make(chan *kafka.Message)
-
+// ConsumeKafkaMessages consumes messages from Kafka until the context is
+// cancelled or a fatal error occurs. The handler is called synchronously for
+// each message and the offset is committed only after the handler succeeds.
+func ConsumeKafkaMessages(ctx context.Context, handler func([]byte) error) error {
 	// Reading configuration
-	kafkaConfig, _ := util.ConvertConfigFileToMap("kafka_consumer.json")
+	kafkaConfig, err := util.ConvertConfigFileToMap("kafka_consumer.json")
+	if err != nil {
+		return fmt.Errorf("load kafka consumer config: %w", err)
+	}
+
+	brokers := kafkaConfig["brokers"]
+	if brokers == "" {
+		return errors.New("kafka consumer config: brokers must not be empty")
+	}
+
+	topic := kafkaConfig["topic"]
+	if topic == "" {
+		return errors.New("kafka consumer config: topic must not be empty")
+	}
 
 	// Kafka consumer configuration
 	config := kafka.ConfigMap{
-		"bootstrap.servers":  kafkaConfig["brokers"],
+		"bootstrap.servers":  brokers,
 		"group.id":           kafkaConfig["groupId"],
 		"auto.offset.reset":  "earliest",
 		"enable.auto.commit": "false",
@@ -28,46 +43,56 @@ func ConsumeKafkaMessages() <-chan *kafka.Message {
 	// Create Kafka consumer
 	consumer, err := kafka.NewConsumer(&config)
 	if err != nil {
-		log.Fatalf("Failed to create consumer: %s\n", err)
+		return fmt.Errorf("create kafka consumer: %w", err)
 	}
+	// This defer now runs when the consume loop exits, not when the function
+	// hands a channel back to the caller.
 	defer consumer.Close()
 
 	// Subscribe to topic(s)
-	topic := kafkaConfig["topic"]
-	err = consumer.SubscribeTopics([]string{topic}, nil)
-	if err != nil {
-		log.Fatalf("Failed to subscribe to topic: %s\n", err)
+	if err := consumer.SubscribeTopics([]string{topic}, nil); err != nil {
+		return fmt.Errorf("subscribe to kafka topic %q: %w", topic, err)
 	}
 
-	maxRetries := 5
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 
-	// Start consuming messages
-	go func() {
-		for {
-			for i := 0; i < maxRetries; i++ {
-				msg, err := consumer.ReadMessage(-1)
-				if err != nil {
-					log.Printf("Error reading message from Kafka: %v, retrying...\n", err)
+		msg, err := consumer.ReadMessage(500 * time.Millisecond)
+		if err != nil {
+			var kafkaErr kafka.Error
+			if errors.As(err, &kafkaErr) {
+				if kafkaErr.Code() == kafka.ErrTimedOut {
 					continue
 				}
-				messages <- msg
-				break
+				if kafkaErr.IsFatal() {
+					return fmt.Errorf("fatal kafka consumer error: %w", err)
+				}
 			}
-			time.Sleep(5 * time.Second) // Wait before retrying
+			if ctx.Err() != nil {
+				return nil
+			}
+			log.Error().Err(err).Msg("error reading message from kafka")
+			continue
 		}
-	}()
 
-	// Handle OS signals in a separate goroutine
-	go func() {
-		sigchan := make(chan os.Signal, 1)
-		signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
-		for sig := range sigchan {
-			log.Printf("Caught signal %v: terminating\n", sig)
-			// Close consumer and exit
-			consumer.Close()
-			os.Exit(1)
+		if err := handler(msg.Value); err != nil {
+			// A write interrupted by shutdown is not a failure; leaving the
+			// offset uncommitted means the message is replayed on restart.
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("process kafka message %s: %w", msg.TopicPartition, err)
 		}
-	}()
 
-	return messages
+		if _, err := consumer.CommitMessage(msg); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("commit kafka message %s: %w", msg.TopicPartition, err)
+		}
+	}
 }

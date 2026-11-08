@@ -3,9 +3,10 @@ package util
 import (
 	"encoding/json"
 	"fmt"
-	"gostreambridge/internal/config"
 	"os"
 	"path/filepath"
+
+	"gostreambridge/internal/config"
 )
 
 // ConvertConfigFileToMap reads a configuration file and converts it to a map
@@ -15,7 +16,7 @@ func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 	// Read config file
 	configData, err := os.ReadFile(filepath.Join("internal", "config", "files", configFileName))
 	if err != nil {
-		return nil, fmt.Errorf("error reading config file: %v", err)
+		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
 	// Unmarshal JSON based on config file type
@@ -23,7 +24,7 @@ func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 	case "elastic.json":
 		var currentConfig config.ElasticConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			return nil, fmt.Errorf("error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %w", err)
 		}
 		configMap = map[string]string{
 			"username": currentConfig.Username,
@@ -34,7 +35,7 @@ func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 	case "mysql.json", "sqlserver.json":
 		var currentConfig config.DBConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			return nil, fmt.Errorf("error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %w", err)
 		}
 		configMap = map[string]string{
 			"database": currentConfig.Database,
@@ -46,17 +47,17 @@ func ConvertConfigFileToMap(configFileName string) (map[string]string, error) {
 	case "kafka_consumer.json", "kafka_producer.json":
 		var currentConfig config.KafkaConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			return nil, fmt.Errorf("error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %w", err)
 		}
 		configMap = map[string]string{
-			"broker":  currentConfig.Broker,
+			"brokers": currentConfig.Broker,
 			"topic":   currentConfig.Topic,
 			"groupId": currentConfig.GroupId,
 		}
 	case "rabbitmq.json":
 		var currentConfig config.RabbitMQConfig
 		if err := json.Unmarshal(configData, &currentConfig); err != nil {
-			return nil, fmt.Errorf("error parsing config JSON: %v", err)
+			return nil, fmt.Errorf("error parsing config JSON: %w", err)
 		}
 		configMap = map[string]string{
 			"url":      currentConfig.URL,
