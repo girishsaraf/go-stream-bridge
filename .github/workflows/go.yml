@@ -1,32 +1,72 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
 name: Go
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+
+permissions:
+  contents: read
 
 jobs:
-
-  build:
+  unit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.22.x'
-        cache: true
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
-    - name: Build
-      run: go build -v ./...
+      - name: Verify module files
+        run: go mod tidy -diff
 
-    - name: Vet
-      run: go vet ./...
+      - name: Reject committed binaries
+        run: |
+          if git ls-files --error-unmatch gostreambridge >/dev/null 2>&1; then
+            echo "::error::gostreambridge is a build artifact and must not be committed"
+            exit 1
+          fi
 
-    - name: Test
-      run: go test -v ./...
+      - name: Build
+        run: go build -trimpath ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start dependencies
+        run: docker compose -f docker-compose.test.yml --profile core --profile sqlserver up -d --wait --wait-timeout 600
+
+      - name: Integration tests
+        env:
+          SQLSERVER_HOST: 127.0.0.1
+        run: make test-integration
+
+      - name: Dump service logs
+        if: failure()
+        run: docker compose -f docker-compose.test.yml --profile core --profile sqlserver logs --no-color
+
+      - name: Stop dependencies
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile core --profile sqlserver down -v
