@@ -7,8 +7,8 @@ require (
 	github.com/elastic/go-elasticsearch/v8 v8.12.1
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/microsoft/go-mssqldb v1.7.2
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/rs/zerolog v1.32.0
-	github.com/streadway/amqp v1.1.0
 )
 
 require (
