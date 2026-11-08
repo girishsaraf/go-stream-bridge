@@ -1,38 +1,34 @@
 package stream
 
 import (
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"context"
+	"fmt"
 )
 
 // StreamBridge defines the interface for a message stream bridge
 type StreamBridge interface {
-	ConsumeMessages(bridgeDetails map[string]string)
+	ConsumeMessages(ctx context.Context, downstreamApp string) error
 }
 
-// StartStreamBridge starts the stream bridge based on provided details
-func StartStreamBridge(bridgeDetails map[string]string) {
-	zerolog.New(os.Stdout)
+// StartStreamBridge starts the stream bridge based on provided details. It
+// blocks until the context is cancelled or the upstream consumer fails.
+func StartStreamBridge(ctx context.Context, bridgeDetails map[string]string) error {
+	upstreamApp := bridgeDetails["upstreamApp"]
+	downstreamApp := bridgeDetails["downstreamApp"]
 
 	var stream StreamBridge
-
-	switch bridgeDetails["upstreamApp"] {
+	switch upstreamApp {
 	case "kafka":
 		stream = KafkaStreamBridge{}
 	case "rabbitmq":
 		stream = RabbitMQStreamBridge{}
 	default:
-		log.Fatal().Msgf("Unsupported message queue type: %s", bridgeDetails["upstreamApp"])
+		return fmt.Errorf("unsupported upstream app: %s", upstreamApp)
 	}
 
-	go stream.ConsumeMessages(bridgeDetails)
+	if err := ValidateDownstream(downstreamApp); err != nil {
+		return err
+	}
 
-	// Wait for termination signal
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	return stream.ConsumeMessages(ctx, downstreamApp)
 }

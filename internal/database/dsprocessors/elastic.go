@@ -1,17 +1,24 @@
 package dsprocessors
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"log"
+	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/rs/zerolog/log"
 
 	"gostreambridge/pkg/util"
+)
+
+const (
+	elasticMaxRetries = 5
+	elasticRetryDelay = 2 * time.Second
 )
 
 type Message struct {
@@ -34,65 +41,88 @@ func NewElasticsearchClient(elasticConfig map[string]string) (*elasticsearch.Cli
 	return esClient, nil
 }
 
-func WriteToElastic(initialMessage string) error {
-
-	// Reading configuration
-	elasticConfig, _ := util.ConvertConfigFileToMap("elastic.json")
-	index, err := elasticConfig["index"]
-
-	// Initialize Elasticsearch client
-	esClient, clientErr := NewElasticsearchClient(elasticConfig)
-	if clientErr != nil {
-		log.Fatalf("Error creating Elasticsearch client: %s", err)
+// WriteToElastic indexes a message in Elasticsearch, retrying transient
+// failures with a bounded number of attempts.
+func WriteToElastic(ctx context.Context, initialMessage string) error {
+	elasticConfig, err := util.ConvertConfigFileToMap("elastic.json")
+	if err != nil {
+		return fmt.Errorf("load elastic config: %w", err)
 	}
 
-	// Create a message to be indexed and add timestamp to the message
+	if elasticConfig["url"] == "" {
+		return fmt.Errorf("elastic config: url must not be empty")
+	}
+
+	index := elasticConfig["index"]
+	if index == "" {
+		return fmt.Errorf("elastic config: index must not be empty")
+	}
+
+	esClient, err := NewElasticsearchClient(elasticConfig)
+	if err != nil {
+		return fmt.Errorf("create elasticsearch client: %w", err)
+	}
+
 	message := Message{
 		Message:   initialMessage,
 		Timestamp: time.Now(),
 	}
 
-	// Marshal the message struct to JSON
-	messageJSON, jsonErr := json.Marshal(message)
-	if jsonErr != nil {
-		log.Fatalf("Error marshaling message to JSON: %s", err)
+	messageJSON, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("marshal elastic message: %w", err)
 	}
 
-	maxRetries := 5
-	// Retry indexing message with specified number of retries
-	for i := 0; i < maxRetries; i++ {
-		if err := indexMessage(esClient, index, string(messageJSON)); err != nil {
-			log.Printf("Error indexing message (attempt %d/%d): %s\n", i+1, maxRetries, err)
-			time.Sleep(2 * time.Second) // Wait before retrying
-			continue
+	var lastErr error
+	for attempt := 1; attempt <= elasticMaxRetries; attempt++ {
+		indexErr := indexMessage(ctx, esClient, index, messageJSON)
+		if indexErr == nil {
+			return nil
 		}
-		log.Println("Message indexed successfully")
-		return nil
+		lastErr = indexErr
+
+		if attempt == elasticMaxRetries {
+			break
+		}
+
+		log.Warn().
+			Err(lastErr).
+			Str("index", index).
+			Int("attempt", attempt).
+			Int("maxAttempts", elasticMaxRetries).
+			Msg("failed to index message in elasticsearch")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(elasticRetryDelay):
+		}
 	}
 
-	return errors.New("failed to index message after maximum retries")
+	return fmt.Errorf("index message in elasticsearch after %d attempts: %w", elasticMaxRetries, lastErr)
 }
 
-// indexMessage indexes the message JSON to the specified Elasticsearch index
-func indexMessage(client *elasticsearch.Client, indexName, messageJSON string) error {
-	// Create index request
+// indexMessage indexes the message JSON to the specified Elasticsearch index.
+func indexMessage(ctx context.Context, client *elasticsearch.Client, indexName string, messageJSON []byte) error {
 	req := esapi.IndexRequest{
 		Index:      indexName,
 		DocumentID: "", // Document ID is optional, Elasticsearch generates one if not provided
-		Body:       strings.NewReader(messageJSON),
-		Refresh:    "true",
+		Body:       bytes.NewReader(messageJSON),
+		Refresh:    "false",
 	}
 
-	// Perform the request
-	res, err := req.Do(context.Background(), client)
+	res, err := req.Do(ctx, client)
 	if err != nil {
-		log.Fatalf("Error performing request: %s", err)
+		return fmt.Errorf("perform elasticsearch index request: %w", err)
 	}
 	defer res.Body.Close()
 
-	// Check response status
 	if res.IsError() {
-		log.Fatalf("Error indexing document: %s", res.Status())
+		body, readErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+		if readErr != nil {
+			return fmt.Errorf("index document: %s (read response body: %w)", res.Status(), readErr)
+		}
+		return fmt.Errorf("index document: %s: %s", res.Status(), strings.TrimSpace(string(body)))
 	}
 
 	return nil

@@ -1,42 +1,49 @@
 package processors
 
 import (
-	"github.com/streadway/amqp"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
+	"context"
+	"errors"
+	"fmt"
 	"time"
+
+	"github.com/rs/zerolog/log"
+	"github.com/streadway/amqp"
 
 	"gostreambridge/pkg/util"
 )
 
-func ConsumeAMQPMessages() <-chan []byte {
-	messages := make(chan []byte)
+const (
+	amqpConnectAttempts = 5
+	amqpRetryDelay      = 2 * time.Second
+	amqpPrefetch        = 10
+)
 
+// ConsumeAMQPMessages consumes messages from RabbitMQ until the context is
+// cancelled or a fatal error occurs. Messages are acknowledged only after the
+// handler succeeds; failures are requeued.
+func ConsumeAMQPMessages(ctx context.Context, handler func([]byte) error) error {
 	// Reading configuration
-	amqpConfig, _ := util.ConvertConfigFileToMap("rabbitmq.json")
-
-	var conn *amqp.Connection
-	var err error
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		conn, err = amqp.Dial(amqpConfig["url"])
-		if err == nil {
-			break
-		}
-		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v\n", i+1, maxRetries, err)
-		time.Sleep(2 * time.Second) // Wait before retrying
-	}
+	amqpConfig, err := util.ConvertConfigFileToMap("rabbitmq.json")
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ after %d retries: %v", maxRetries, err)
+		return fmt.Errorf("load rabbitmq config: %w", err)
 	}
+
+	url := amqpConfig["url"]
+	if url == "" {
+		return errors.New("rabbitmq config: url must not be empty")
+	}
+
+	conn, err := dialAMQP(ctx, url)
+	if err != nil {
+		return err
+	}
+	// Deferred closes run when the consume loop exits.
 	defer conn.Close()
 
 	// Create a channel
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Failed to open a channel: %v", err)
+		return fmt.Errorf("open rabbitmq channel: %w", err)
 	}
 	defer ch.Close()
 
@@ -50,52 +57,83 @@ func ConsumeAMQPMessages() <-chan []byte {
 		nil,                 // arguments
 	)
 	if err != nil {
-		log.Fatalf("Failed to declare a queue: %v", err)
+		return fmt.Errorf("declare rabbitmq queue %q: %w", amqpConfig["queue"], err)
 	}
 
-	// Retry consuming messages from the queue
-	var msgs <-chan amqp.Delivery
-	for i := 0; i < maxRetries; i++ {
-		msgs, err = ch.Consume(
-			q.Name, // queue
-			"",     // consumer
-			true,   // auto-ack
-			false,  // exclusive
-			false,  // no-local
-			false,  // no-wait
-			nil,    // args
-		)
-		if err == nil {
-			break
-		}
-		log.Printf("Failed to register a consumer (attempt %d/%d): %v\n", i+1, maxRetries, err)
-		time.Sleep(2 * time.Second) // Wait before retrying
+	// Bound the number of unacknowledged deliveries this consumer may hold.
+	if err := ch.Qos(amqpPrefetch, 0, false); err != nil {
+		return fmt.Errorf("set rabbitmq prefetch: %w", err)
 	}
+
+	msgs, err := ch.Consume(
+		q.Name, // queue
+		"",     // consumer
+		false,  // auto-ack: ack only after successful processing
+		false,  // exclusive
+		false,  // no-local
+		false,  // no-wait
+		nil,    // args
+	)
 	if err != nil {
-		log.Fatalf("Failed to register a consumer after %d retries: %v", maxRetries, err)
+		return fmt.Errorf("register rabbitmq consumer: %w", err)
 	}
 
-	// Channel to handle OS signals
-	sigchan := make(chan os.Signal, 1)
-	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGTERM)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case msg, ok := <-msgs:
+			if !ok {
+				return errors.New("rabbitmq delivery channel closed")
+			}
 
-	// Start consuming messages
-	go func() {
-		for msg := range msgs {
-			log.Printf("Received message: %s\n", msg.Body)
-			messages <- msg.Body
+			if err := handler(msg.Body); err != nil {
+				// Closing the connection requeues unacked deliveries.
+				if ctx.Err() != nil {
+					return nil
+				}
+				log.Error().Err(err).Str("queue", q.Name).Msg("failed to process rabbitmq message; requeueing")
+				if nackErr := msg.Nack(false, true); nackErr != nil {
+					return fmt.Errorf("nack rabbitmq message: %w", nackErr)
+				}
+				// Avoid a tight requeue loop while the downstream is unhealthy.
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(amqpRetryDelay):
+				}
+				continue
+			}
+
+			if err := msg.Ack(false); err != nil {
+				return fmt.Errorf("ack rabbitmq message: %w", err)
+			}
 		}
-	}()
+	}
+}
 
-	// Handle OS signals in a separate goroutine
-	go func() {
-		for sig := range sigchan {
-			log.Printf("Caught signal %v: terminating\n", sig)
-			// Close channel and exit
-			close(messages)
-			os.Exit(1)
+// dialAMQP connects to RabbitMQ with bounded retries, aborting early if the
+// context is cancelled.
+func dialAMQP(ctx context.Context, url string) (*amqp.Connection, error) {
+	var lastErr error
+	for attempt := 1; attempt <= amqpConnectAttempts; attempt++ {
+		conn, err := amqp.Dial(url)
+		if err == nil {
+			return conn, nil
 		}
-	}()
+		lastErr = err
+		log.Warn().
+			Err(err).
+			Int("attempt", attempt).
+			Int("maxAttempts", amqpConnectAttempts).
+			Msg("failed to connect to rabbitmq")
 
-	return messages
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(amqpRetryDelay):
+		}
+	}
+
+	return nil, fmt.Errorf("connect to rabbitmq after %d attempts: %w", amqpConnectAttempts, lastErr)
 }
