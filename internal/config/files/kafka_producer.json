@@ -1,5 +1,4 @@
 {
-    "brokers": "localhost1:9092,localhost2:9092",
-    "topic": "my_topic",
-    "groupId": "my_group"
+    "brokers": "localhost:9092",
+    "topic": "topic2"
 }

@@ -1,0 +1,15 @@
+{
+    "workers": 1,
+    "buffer": 256,
+    "messageTimeout": "30s",
+    "shutdownTimeout": "30s",
+    "failurePolicy": "stop",
+    "retry": {
+        "attempts": 5,
+        "baseDelay": "2s",
+        "maxDelay": "30s"
+    },
+    "dlq": {
+        "type": ""
+    }
+}

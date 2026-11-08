@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
+	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog/log"
@@ -13,10 +13,7 @@ import (
 	"gostreambridge/internal/retry"
 )
 
-const (
-	amqpPrefetch     = 10
-	amqpRequeueDelay = 2 * time.Second
-)
+const amqpDefaultPrefetch = 10
 
 // RabbitMQSource consumes messages from a RabbitMQ queue. The connection and
 // channel are created once and reused for the lifetime of the process.
@@ -25,6 +22,12 @@ type RabbitMQSource struct {
 	channel    *amqp.Channel
 	queue      string
 	deliveries <-chan amqp.Delivery
+
+	// AMQP channels are not safe for concurrent use; all acknowledgements and
+	// channel shutdown are serialized through this mutex.
+	ackMu     sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewRabbitMQSource loads the RabbitMQ configuration, connects to the broker,
@@ -51,20 +54,29 @@ func NewRabbitMQSource(ctx context.Context, configDir string) (*RabbitMQSource, 
 		_ = conn.Close()
 	}
 
+	durable := true
+	if cfg.Durable != nil {
+		durable = *cfg.Durable
+	}
+
 	q, err := ch.QueueDeclare(
-		cfg.Queue, // name
-		false,     // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
+		cfg.Queue,      // name
+		durable,        // durable
+		cfg.AutoDelete, // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // arguments
 	)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("declare rabbitmq queue %q: %w", cfg.Queue, err)
 	}
 
-	if err := ch.Qos(amqpPrefetch, 0, false); err != nil {
+	prefetch := cfg.Prefetch
+	if prefetch == 0 {
+		prefetch = amqpDefaultPrefetch
+	}
+	if err := ch.Qos(prefetch, 0, false); err != nil {
 		cleanup()
 		return nil, fmt.Errorf("set rabbitmq prefetch: %w", err)
 	}
@@ -92,44 +104,55 @@ func NewRabbitMQSource(ctx context.Context, configDir string) (*RabbitMQSource, 
 }
 
 // Consume processes deliveries until the context is cancelled. Messages are
-// acknowledged only after the handler succeeds; failures are requeued.
-func (s *RabbitMQSource) Consume(ctx context.Context, handle Handler) error {
+// acknowledged only after the pipeline reports a terminal success; failures
+// remain unacknowledged and are requeued when the channel closes.
+func (s *RabbitMQSource) Consume(ctx context.Context, deliver Deliver) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case msg, ok := <-s.deliveries:
+		case delivery, ok := <-s.deliveries:
 			if !ok {
-				return errors.New("rabbitmq delivery channel closed")
-			}
-
-			if err := handle(ctx, msg.Body); err != nil {
-				// Closing the connection requeues unacked deliveries.
 				if ctx.Err() != nil {
 					return nil
 				}
-				log.Error().Err(err).Str("queue", s.queue).Msg("failed to process rabbitmq message; requeueing")
-				if nackErr := msg.Nack(false, true); nackErr != nil {
-					return fmt.Errorf("nack rabbitmq message: %w", nackErr)
-				}
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-time.After(amqpRequeueDelay):
-				}
-				continue
+				return errors.New("rabbitmq delivery channel closed")
 			}
 
-			if err := msg.Ack(false); err != nil {
-				return fmt.Errorf("ack rabbitmq message: %w", err)
+			delivered := Message{
+				Value:       delivery.Body,
+				Source:      "rabbitmq",
+				Queue:       s.queue,
+				DeliveryTag: delivery.DeliveryTag,
+				Ack: func(processingErr error) error {
+					if processingErr != nil {
+						return nil
+					}
+					s.ackMu.Lock()
+					defer s.ackMu.Unlock()
+					return delivery.Ack(false)
+				},
+			}
+
+			if err := deliver(delivered); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("deliver rabbitmq message %d: %w", delivery.DeliveryTag, err)
 			}
 		}
 	}
 }
 
-// Close releases the RabbitMQ channel and connection.
+// Close releases the RabbitMQ channel and connection. Unacknowledged messages
+// are requeued by the broker.
 func (s *RabbitMQSource) Close() error {
-	return errors.Join(s.channel.Close(), s.conn.Close())
+	s.closeOnce.Do(func() {
+		s.ackMu.Lock()
+		defer s.ackMu.Unlock()
+		s.closeErr = errors.Join(s.channel.Close(), s.conn.Close())
+	})
+	return s.closeErr
 }
 
 // dialRabbitMQ connects to RabbitMQ with exponential backoff.
