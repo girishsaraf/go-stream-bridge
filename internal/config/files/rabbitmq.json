@@ -1,4 +1,7 @@
 {
     "url": "amqp://guest:guest@localhost:5672",
-    "queue": "rabbitmq_queue"
+    "queue": "rabbitmq_queue",
+    "prefetch": 10,
+    "durable": true,
+    "autoDelete": false
 }

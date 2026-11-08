@@ -2,10 +2,11 @@ package sink
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/rs/zerolog/log"
 
 	"gostreambridge/internal/config"
@@ -42,6 +43,7 @@ func NewKafkaSink(configDir string) (*KafkaSink, error) {
 
 // Write produces one message and waits for its delivery report. librdkafka
 // retries transient delivery failures internally until message.timeout.ms.
+// Pipeline-level retries cover failures that survive that window.
 func (s *KafkaSink) Write(ctx context.Context, message []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -54,7 +56,7 @@ func (s *KafkaSink) Write(ctx context.Context, message []byte) error {
 		TopicPartition: kafka.TopicPartition{Topic: &s.topic, Partition: kafka.PartitionAny},
 		Value:          message,
 	}, deliveryChan); err != nil {
-		return fmt.Errorf("produce kafka message: %w", err)
+		return classifyKafkaError(fmt.Errorf("produce kafka message: %w", err))
 	}
 
 	select {
@@ -63,10 +65,10 @@ func (s *KafkaSink) Write(ctx context.Context, message []byte) error {
 	case event := <-deliveryChan:
 		delivered, ok := event.(*kafka.Message)
 		if !ok {
-			return fmt.Errorf("unexpected kafka delivery event: %T", event)
+			return Permanent(fmt.Errorf("unexpected kafka delivery event: %T", event))
 		}
 		if delivered.TopicPartition.Error != nil {
-			return fmt.Errorf("deliver kafka message to topic %q: %w", s.topic, delivered.TopicPartition.Error)
+			return classifyKafkaError(fmt.Errorf("deliver kafka message to topic %q: %w", s.topic, delivered.TopicPartition.Error))
 		}
 		return nil
 	}
@@ -85,4 +87,27 @@ func (s *KafkaSink) Close() error {
 			Msg("kafka producer closed with outstanding messages or requests")
 	}
 	return nil
+}
+
+// classifyKafkaError marks errors that retrying cannot fix as permanent.
+func classifyKafkaError(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return err
+	}
+
+	var kafkaErr kafka.Error
+	if errors.As(err, &kafkaErr) {
+		switch kafkaErr.Code() {
+		case kafka.ErrInvalidArg,
+			kafka.ErrInvalidMsg,
+			kafka.ErrMsgSizeTooLarge,
+			kafka.ErrRecordListTooLarge,
+			kafka.ErrTopicAuthorizationFailed,
+			kafka.ErrClusterAuthorizationFailed,
+			kafka.ErrSaslAuthenticationFailed:
+			return Permanent(err)
+		}
+	}
+	return err
 }

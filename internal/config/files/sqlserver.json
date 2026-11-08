@@ -4,5 +4,4 @@
     "host": "localhost",
     "port": "1433",
     "database": "my_database"
-  }
-  
+}

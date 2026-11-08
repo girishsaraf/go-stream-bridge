@@ -15,7 +15,7 @@ func New(ctx context.Context, name, configDir string) (Sink, error) {
 	case "sqlserver":
 		return NewSQLSink(ctx, "sqlserver", configDir)
 	case "elastic":
-		return NewElasticSink(configDir)
+		return NewElasticSink(ctx, configDir)
 	default:
 		return nil, fmt.Errorf("unsupported downstream app: %s", name)
 	}
