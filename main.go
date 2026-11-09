@@ -1,3 +1,5 @@
+// Command stream-bridge forwards messages between configured source and sink
+// systems.
 package main
 
 import (
@@ -50,7 +52,6 @@ func main() {
 	// shutdown starts, restore the default signal behavior so a second signal
 	// can force-quit a drain that is taking too long.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		<-ctx.Done()
@@ -72,9 +73,11 @@ func main() {
 	}
 
 	if err := stream.StartStreamBridge(ctx, opts); err != nil && !errors.Is(err, context.Canceled) {
+		stop()
 		log.Fatal().Err(err).Msg("stream bridge failed")
 	}
 
+	stop()
 	log.Info().Msg("stream bridge stopped")
 }
 

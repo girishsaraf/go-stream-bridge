@@ -98,7 +98,9 @@ func TestExpandEnv(t *testing.T) {
 
 func TestExpandEnvReportsMissingVariable(t *testing.T) {
 	const name = "STREAM_BRIDGE_TEST_DEFINITELY_UNSET"
-	os.Unsetenv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatalf("unset %s: %v", name, err)
+	}
 
 	_, err := ExpandEnv([]byte(`{"password":"${` + name + `}"}`))
 	if err == nil {

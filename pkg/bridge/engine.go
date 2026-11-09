@@ -200,14 +200,15 @@ func (p *Pipeline[T]) process(parent context.Context, delivery Delivery[T]) erro
 	defer cancel()
 
 	err := p.deliver(messageCtx, event)
-	if err == nil {
+	switch {
+	case err == nil:
 		if ackErr := delivery.Ack(messageCtx); ackErr != nil {
 			return fmt.Errorf("acknowledge event %q: %w", event.Metadata.ID, ackErr)
 		}
 		return nil
-	} else if parent.Err() != nil {
+	case parent.Err() != nil:
 		return nil
-	} else if p.failureHandler != nil {
+	case p.failureHandler != nil:
 		if failureErr := p.failureHandler.HandleFailure(messageCtx, event, err); failureErr == nil {
 			if ackErr := delivery.Ack(messageCtx); ackErr != nil {
 				return fmt.Errorf("acknowledge dead-lettered event %q: %w", event.Metadata.ID, ackErr)
@@ -221,7 +222,7 @@ func (p *Pipeline[T]) process(parent context.Context, delivery Delivery[T]) erro
 			return errors.Join(err, fmt.Errorf("nacknowledge event %q: %w", event.Metadata.ID, nackErr))
 		}
 		return err
-	} else {
+	default:
 		if nackErr := delivery.Nack(messageCtx, err); nackErr != nil {
 			return errors.Join(err, fmt.Errorf("nacknowledge event %q: %w", event.Metadata.ID, nackErr))
 		}

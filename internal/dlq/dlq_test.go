@@ -54,7 +54,11 @@ func TestFileWriterAppendsRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open DLQ file: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			t.Errorf("close DLQ file: %v", closeErr)
+		}
+	}()
 
 	var got []Record
 	scanner := bufio.NewScanner(file)
@@ -93,7 +97,11 @@ func TestFileWriterHonorsCancelledContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileWriter: %v", err)
 	}
-	defer writer.Close()
+	defer func() {
+		if closeErr := writer.Close(); closeErr != nil {
+			t.Errorf("Close: %v", closeErr)
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

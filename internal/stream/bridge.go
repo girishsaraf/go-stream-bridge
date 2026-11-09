@@ -69,8 +69,9 @@ func StartStreamBridge(ctx context.Context, opts Options) error {
 // messages; the source is acknowledged only after a terminal outcome. All
 // components are closed before Run returns.
 func Run(ctx context.Context, src source.Source, dst sink.Sink, cfg config.Bridge, dlqWriter dlq.Writer) (err error) {
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid runtime config: %w", err)
+	validationErr := cfg.Validate()
+	if validationErr != nil {
+		return fmt.Errorf("invalid runtime config: %w", validationErr)
 	}
 	if cfg.FailurePolicy == config.FailurePolicyDLQ && dlqWriter == nil {
 		return errors.New("failure policy dlq requires a dead-letter writer")
@@ -94,7 +95,7 @@ func Run(ctx context.Context, src source.Source, dst sink.Sink, cfg config.Bridg
 		workers.Add(1)
 		go func(workerID int) {
 			defer workers.Done()
-			p.work(workerID, jobs)
+			p.work(runCtx, workerID, jobs)
 		}(id)
 	}
 
@@ -175,29 +176,29 @@ type pipeline struct {
 	deadLettered atomic.Int64
 }
 
-func (p *pipeline) work(workerID int, jobs <-chan source.Message) {
+func (p *pipeline) work(ctx context.Context, workerID int, jobs <-chan source.Message) {
 	log.Debug().Int("worker", workerID).Msg("worker started")
 	defer log.Debug().Int("worker", workerID).Msg("worker stopped")
 
 	for {
 		select {
-		case <-p.runCtx.Done():
+		case <-ctx.Done():
 			return
 		case message, ok := <-jobs:
 			if !ok {
 				return
 			}
-			if p.runCtx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
-			p.handle(message)
+			p.handle(ctx, message)
 		}
 	}
 }
 
-func (p *pipeline) handle(message source.Message) {
+func (p *pipeline) handle(ctx context.Context, message source.Message) {
 	attempts := 0
-	messageCtx, cancel := context.WithTimeout(p.runCtx, p.cfg.MessageTimeout.Std())
+	messageCtx, cancel := context.WithTimeout(ctx, p.cfg.MessageTimeout.Std())
 	defer cancel()
 
 	policy := p.retry
@@ -259,7 +260,7 @@ func (p *pipeline) handle(message source.Message) {
 		Payload:     message.Value,
 	}
 
-	dlqCtx, dlqCancel := context.WithTimeout(p.runCtx, p.cfg.MessageTimeout.Std())
+	dlqCtx, dlqCancel := context.WithTimeout(ctx, p.cfg.MessageTimeout.Std())
 	defer dlqCancel()
 
 	if dlqErr := p.dlq.Write(dlqCtx, record); dlqErr != nil {

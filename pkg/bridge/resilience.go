@@ -12,9 +12,13 @@ import (
 type Classification uint8
 
 const (
+	// Transient errors may be retried.
 	Transient Classification = iota
+	// Permanent errors must not be retried.
 	Permanent
+	// Throttled errors may be retried after a delay.
 	Throttled
+	// Cancelled errors stop processing without retry.
 	Cancelled
 )
 
@@ -90,8 +94,11 @@ func (h SinkFailureHandler[T]) HandleFailure(ctx context.Context, event Event[T]
 type CircuitState uint8
 
 const (
+	// CircuitClosed accepts calls normally.
 	CircuitClosed CircuitState = iota
+	// CircuitOpen rejects calls until its timeout expires.
 	CircuitOpen
+	// CircuitHalfOpen permits a bounded number of recovery probes.
 	CircuitHalfOpen
 )
 

@@ -1,3 +1,4 @@
+// Package config loads and validates stream bridge configuration.
 package config
 
 import (

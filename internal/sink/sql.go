@@ -54,15 +54,20 @@ func NewSQLSink(ctx context.Context, driver, configDir string) (*SQLSink, error)
 	setupCtx, cancel := context.WithTimeout(ctx, sqlStartupTimeout)
 	defer cancel()
 
-	if err := db.PingContext(setupCtx); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("ping %s database: %w", driver, err)
+	pingErr := db.PingContext(setupCtx)
+	if pingErr != nil {
+		return nil, errors.Join(
+			fmt.Errorf("ping %s database: %w", driver, pingErr),
+			db.Close(),
+		)
 	}
 
 	stmt, err := db.PrepareContext(setupCtx, spec.query)
 	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("prepare %s statement: %w", driver, err)
+		return nil, errors.Join(
+			fmt.Errorf("prepare %s statement: %w", driver, err),
+			db.Close(),
+		)
 	}
 
 	return &SQLSink{db: db, stmt: stmt, driver: driver}, nil

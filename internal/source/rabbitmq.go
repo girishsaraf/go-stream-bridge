@@ -45,13 +45,14 @@ func NewRabbitMQSource(ctx context.Context, configDir string) (*RabbitMQSource, 
 
 	ch, err := conn.Channel()
 	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("open rabbitmq channel: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("open rabbitmq channel: %w", err),
+			conn.Close(),
+		)
 	}
 
-	cleanup := func() {
-		_ = ch.Close()
-		_ = conn.Close()
+	cleanup := func() error {
+		return errors.Join(ch.Close(), conn.Close())
 	}
 
 	durable := true
@@ -68,17 +69,22 @@ func NewRabbitMQSource(ctx context.Context, configDir string) (*RabbitMQSource, 
 		nil,            // arguments
 	)
 	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("declare rabbitmq queue %q: %w", cfg.Queue, err)
+		return nil, errors.Join(
+			fmt.Errorf("declare rabbitmq queue %q: %w", cfg.Queue, err),
+			cleanup(),
+		)
 	}
 
 	prefetch := cfg.Prefetch
 	if prefetch == 0 {
 		prefetch = amqpDefaultPrefetch
 	}
-	if err := ch.Qos(prefetch, 0, false); err != nil {
-		cleanup()
-		return nil, fmt.Errorf("set rabbitmq prefetch: %w", err)
+	qosErr := ch.Qos(prefetch, 0, false)
+	if qosErr != nil {
+		return nil, errors.Join(
+			fmt.Errorf("set rabbitmq prefetch: %w", qosErr),
+			cleanup(),
+		)
 	}
 
 	deliveries, err := ch.Consume(
@@ -91,8 +97,10 @@ func NewRabbitMQSource(ctx context.Context, configDir string) (*RabbitMQSource, 
 		nil,    // args
 	)
 	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("register rabbitmq consumer: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("register rabbitmq consumer: %w", err),
+			cleanup(),
+		)
 	}
 
 	return &RabbitMQSource{
@@ -110,11 +118,11 @@ func (s *RabbitMQSource) Consume(ctx context.Context, deliver Deliver) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case delivery, ok := <-s.deliveries:
 			if !ok {
 				if ctx.Err() != nil {
-					return nil
+					return ctx.Err()
 				}
 				return errors.New("rabbitmq delivery channel closed")
 			}
@@ -125,18 +133,19 @@ func (s *RabbitMQSource) Consume(ctx context.Context, deliver Deliver) error {
 				Queue:       s.queue,
 				DeliveryTag: delivery.DeliveryTag,
 				Ack: func(processingErr error) error {
-					if processingErr != nil {
-						return nil
+					if processingErr == nil {
+						s.ackMu.Lock()
+						defer s.ackMu.Unlock()
+						return delivery.Ack(false)
 					}
-					s.ackMu.Lock()
-					defer s.ackMu.Unlock()
-					return delivery.Ack(false)
+					// A processing error leaves the message unacknowledged for replay.
+					return nil
 				},
 			}
 
 			if err := deliver(delivered); err != nil {
 				if ctx.Err() != nil {
-					return nil
+					return ctx.Err()
 				}
 				return fmt.Errorf("deliver rabbitmq message %d: %w", delivery.DeliveryTag, err)
 			}

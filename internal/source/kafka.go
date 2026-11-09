@@ -40,8 +40,9 @@ func NewKafkaSource(configDir string) (*KafkaSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := cfg.ValidateConsumer(); err != nil {
-		return nil, fmt.Errorf("kafka consumer config: %w", err)
+	validationErr := cfg.ValidateConsumer()
+	if validationErr != nil {
+		return nil, fmt.Errorf("kafka consumer config: %w", validationErr)
 	}
 
 	s := &KafkaSource{
@@ -63,8 +64,10 @@ func NewKafkaSource(configDir string) (*KafkaSource, error) {
 	s.consumer = consumer
 
 	if err := consumer.SubscribeTopics([]string{cfg.Topic}, s.rebalance); err != nil {
-		_ = consumer.Close()
-		return nil, fmt.Errorf("subscribe to kafka topic %q: %w", cfg.Topic, err)
+		return nil, errors.Join(
+			fmt.Errorf("subscribe to kafka topic %q: %w", cfg.Topic, err),
+			consumer.Close(),
+		)
 	}
 
 	go s.commitLoop()
@@ -77,7 +80,7 @@ func NewKafkaSource(configDir string) (*KafkaSource, error) {
 func (s *KafkaSource) Consume(ctx context.Context, deliver Deliver) error {
 	for {
 		if ctx.Err() != nil {
-			return nil
+			return ctx.Err()
 		}
 
 		msg, err := s.consumer.ReadMessage(kafkaPollTimeout)
@@ -92,7 +95,7 @@ func (s *KafkaSource) Consume(ctx context.Context, deliver Deliver) error {
 				}
 			}
 			if ctx.Err() != nil {
-				return nil
+				return ctx.Err()
 			}
 			log.Error().Err(err).Msg("error reading message from kafka")
 			continue
@@ -114,18 +117,17 @@ func (s *KafkaSource) Consume(ctx context.Context, deliver Deliver) error {
 			Partition: partition,
 			Offset:    offset,
 			Ack: func(processingErr error) error {
-				if processingErr != nil {
-					// Leave the offset uncommitted so it is replayed.
-					return nil
+				if processingErr == nil {
+					s.tracker.Mark(partition, offset)
 				}
-				s.tracker.Mark(partition, offset)
+				// A processing error leaves the offset uncommitted for replay.
 				return nil
 			},
 		}
 
 		if err := deliver(delivered); err != nil {
 			if ctx.Err() != nil {
-				return nil
+				return ctx.Err()
 			}
 			return fmt.Errorf("deliver kafka message %s: %w", msg.TopicPartition, err)
 		}

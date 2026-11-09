@@ -143,7 +143,9 @@ type Source[T any] struct {
 func NewSource[T any](events ...bridge.Event[T]) *Source[T] {
 	source := NewOpenSource[T]()
 	for _, event := range events {
-		_, _ = source.Send(event)
+		if _, err := source.Send(event); err != nil {
+			panic(err)
+		}
 	}
 	source.Finish()
 	return source

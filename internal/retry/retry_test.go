@@ -104,9 +104,12 @@ func TestDoReportsRetryAttempts(t *testing.T) {
 		OnRetry:   func(attempt int, _ error) { observed = append(observed, attempt) },
 	}
 
-	_ = policy.Do(context.Background(), func(context.Context) error {
+	err := policy.Do(context.Background(), func(context.Context) error {
 		return errors.New("temporary")
 	})
+	if err == nil {
+		t.Fatal("expected retries to return the last error")
+	}
 
 	if len(observed) != 2 || observed[0] != 1 || observed[1] != 2 {
 		t.Fatalf("unexpected retry attempts: %v", observed)

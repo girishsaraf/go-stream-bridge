@@ -159,6 +159,8 @@ func ExampleSink_SetGate() {
 	}()
 
 	close(gate)
-	<-done
+	if err := <-done; err != nil {
+		panic(err)
+	}
 	// Output:
 }

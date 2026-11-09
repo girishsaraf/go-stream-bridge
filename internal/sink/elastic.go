@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,21 +76,26 @@ func (s *ElasticSink) Close() error {
 	return nil
 }
 
-func (s *ElasticSink) ping(ctx context.Context) error {
+func (s *ElasticSink) ping(ctx context.Context) (err error) {
 	res, err := esapi.PingRequest{}.Do(ctx, s.client)
 	if err != nil {
 		return fmt.Errorf("ping elasticsearch: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		err = errors.Join(err, res.Body.Close())
+	}()
 
 	if res.IsError() {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+		body, readErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+		if readErr != nil {
+			return fmt.Errorf("ping elasticsearch: %s (read response body: %w)", res.Status(), readErr)
+		}
 		return fmt.Errorf("ping elasticsearch: %s: %s", res.Status(), strings.TrimSpace(string(body)))
 	}
 	return nil
 }
 
-func (s *ElasticSink) indexDocument(ctx context.Context, payload []byte) error {
+func (s *ElasticSink) indexDocument(ctx context.Context, payload []byte) (err error) {
 	req := esapi.IndexRequest{
 		Index:   s.index,
 		Body:    bytes.NewReader(payload),
@@ -100,7 +106,9 @@ func (s *ElasticSink) indexDocument(ctx context.Context, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("perform elasticsearch index request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		err = errors.Join(err, res.Body.Close())
+	}()
 
 	if res.IsError() {
 		body, readErr := io.ReadAll(io.LimitReader(res.Body, 1<<20))

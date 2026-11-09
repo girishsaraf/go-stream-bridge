@@ -17,7 +17,9 @@ func newTestElasticSink(t *testing.T, status int) *ElasticSink {
 		w.Header().Set("X-Elastic-Product", "Elasticsearch")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(`{"error":"test failure"}`))
+		if _, err := w.Write([]byte(`{"error":"test failure"}`)); err != nil {
+			t.Errorf("write elastic response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 
