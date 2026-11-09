@@ -20,6 +20,73 @@ Clients and connection pools are created once per process and reused for every m
 - `${VAR}` environment expansion in JSON configuration with fail-fast on unset variables.
 - Structured console or JSON logging, signal-driven graceful shutdown, and build version metadata.
 
+## SDK architecture
+
+The public SDK separates transport adapters from the bounded processing core.
+Applications enable compiled connectors with blank imports or explicit
+registration; third-party connectors follow the [Connector Developer
+Kit](docs/external-connector-development.md).
+
+```mermaid
+flowchart LR
+    S[Source connector\nKafka / RabbitMQ / SQS] --> I[Bounded intake]
+    I --> M[Middleware\nvalidate / enrich / audit]
+    M --> R[Router and schema codec]
+    R --> B[Worker pool / batcher]
+    B --> K[Sink connector\nSQL / broker / object storage]
+    B -->|terminal failure| D[DLQ]
+    O[Logger / meter / tracer] -.-> I
+    O -.-> B
+```
+
+Each delivery remains unacknowledged until every required sink succeeds or a
+durable DLQ handler accepts its terminal failure. A full queue applies
+backpressure instead of accumulating unbounded memory.
+
+## SDK quick start: Kafka to PostgreSQL
+
+This ten-line bootstrap assumes a PostgreSQL connector built with the CDK is
+registered as `postgres`; the repository's built-in SQL adapters currently
+cover MySQL and SQL Server.
+
+```go
+ctx := context.Background()
+cfg, err := runtime.Load([]byte(`{"source":{"type":"kafka","config":{"brokers":"localhost:9092","topic":"orders","groupId":"pg-bridge"}},"sink":{"type":"postgres","config":{"dsn":"postgres://bridge:secret@localhost/orders"}},"pipeline":{"workers":4,"buffer":256,"messageTimeout":30000000000,"shutdownTimeout":30000000000}}`))
+if err != nil { log.Fatal(err) }
+pipeline, err := runtime.Build(ctx, cfg, bridge.Dependencies{})
+if err != nil { log.Fatal(err) }
+if err := pipeline.Run(ctx); err != nil { log.Fatal(err) }
+```
+
+Import the Kafka and PostgreSQL connector packages in the application that owns
+this bootstrap. See [`pkg/bridge/example_test.go`](pkg/bridge/example_test.go)
+for a runnable, infrastructure-free SDK example.
+
+### Configuration matrix
+
+| Setting | Default | Environment override | Notes |
+| --- | --- | --- | --- |
+| Source/sink connector | none | application-owned | Registered connector type and JSON configuration. |
+| `workers` | `1` | none | Legacy CLI default; SDK `PipelineConfig` requires an explicit positive value. |
+| `buffer` | `256` | none | Legacy CLI default; bounds queued unacknowledged deliveries. |
+| `messageTimeout` | `30s` | none | Legacy CLI default; includes retries and DLQ writes. |
+| `shutdownTimeout` | `30s` | none | Legacy CLI graceful-drain deadline. |
+| `retry.attempts` | `5` | none | Total attempts, including the first. |
+| `retry.baseDelay` / `maxDelay` | `2s` / `30s` | none | Exponential retry bounds. |
+| Config directory | `internal/config/files` | `STREAM_BRIDGE_CONFIG_DIR` | Legacy CLI configuration directory. |
+| Logging level | `info` | `LOG_LEVEL` | `trace` through `panic`. |
+| Logging format | console | `LOG_FORMAT` | Set to `json` for structured output. |
+
+## Documentation and decisions
+
+- [SDK documentation standards](docs/sdk-documentation.md) define exported API
+  comments and executable `Example...` tests.
+- [External connector development](docs/external-connector-development.md)
+  documents the CDK and conformance expectations.
+- [ADR template](docs/adr/template.md) records durable architectural decisions.
+- `.golangci.yml` enforces documentation, error handling, context, resource,
+  concurrency, and formatting checks in CI.
+
 ## Requirements
 
 - Go 1.26.10 or newer.
