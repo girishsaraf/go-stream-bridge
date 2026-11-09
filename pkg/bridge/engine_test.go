@@ -127,3 +127,174 @@ func TestPipelineRetriesBeforeAcknowledging(t *testing.T) {
 		t.Fatalf("ack = %d, want 1", delivery.acked)
 	}
 }
+
+type recordingFailureHandler struct {
+	called bool
+	err    error
+}
+
+func (h *recordingFailureHandler) HandleFailure(context.Context, Event[string], error) error {
+	h.called = true
+	return h.err
+}
+
+func TestPipelineAcknowledgesAfterTerminalFailureHandler(t *testing.T) {
+	delivery := &memoryDelivery{event: Event[string]{Metadata: Metadata{ID: "one"}}}
+	handler := &recordingFailureHandler{}
+	pipeline, err := NewPipeline(
+		&memorySource{deliveries: []*memoryDelivery{delivery}},
+		memorySink{err: errors.New("invalid payload")},
+		testPipelineConfig(),
+		handler,
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	if err := pipeline.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !handler.called || delivery.acked != 1 || delivery.nacked != 0 {
+		t.Fatalf("handler=%v ack=%d nack=%d", handler.called, delivery.acked, delivery.nacked)
+	}
+}
+
+type countingRetryPolicy struct{ calls int }
+
+func (p *countingRetryPolicy) Next(int, error) (time.Duration, bool) {
+	p.calls++
+	return 0, true
+}
+
+func TestPipelineDoesNotRetryPermanentErrors(t *testing.T) {
+	delivery := &memoryDelivery{event: Event[string]{Metadata: Metadata{ID: "one"}}}
+	retry := &countingRetryPolicy{}
+	pipeline, err := NewPipeline(
+		&memorySource{deliveries: []*memoryDelivery{delivery}},
+		memorySink{err: errors.New("schema violation")},
+		testPipelineConfig(),
+		nil,
+		WithRetry[string](retry),
+		WithErrorClassifier[string](ErrorClassifierFunc(func(error) Classification { return Permanent })),
+	)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	if err := pipeline.Run(context.Background()); err == nil {
+		t.Fatal("Run succeeded")
+	}
+	if retry.calls != 0 {
+		t.Fatalf("retry calls = %d, want 0", retry.calls)
+	}
+}
+
+type blockingSink struct {
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (s blockingSink) Open(context.Context) error  { return nil }
+func (s blockingSink) Close(context.Context) error { return nil }
+func (s blockingSink) Deliver(ctx context.Context, _ Event[string]) error {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-s.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type trackingSource struct {
+	deliveries []*memoryDelivery
+	received   chan int
+	blockAfter bool
+	mu         sync.Mutex
+	index      int
+}
+
+func (*trackingSource) Open(context.Context) error   { return nil }
+func (*trackingSource) Close(context.Context) error  { return nil }
+func (*trackingSource) Pause(context.Context) error  { return nil }
+func (*trackingSource) Resume(context.Context) error { return nil }
+func (s *trackingSource) Receive(ctx context.Context) (Delivery[string], error) {
+	s.mu.Lock()
+	if s.index < len(s.deliveries) {
+		delivery := s.deliveries[s.index]
+		s.index++
+		index := s.index
+		s.mu.Unlock()
+		s.received <- index
+		return delivery, nil
+	}
+	s.mu.Unlock()
+	if !s.blockAfter {
+		return nil, io.EOF
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestPipelineAppliesBackpressureWhenWorkersAreBusy(t *testing.T) {
+	deliveries := []*memoryDelivery{
+		{event: Event[string]{Metadata: Metadata{ID: "one"}}},
+		{event: Event[string]{Metadata: Metadata{ID: "two"}}},
+		{event: Event[string]{Metadata: Metadata{ID: "three"}}},
+	}
+	source := &trackingSource{deliveries: deliveries, received: make(chan int, len(deliveries))}
+	release := make(chan struct{})
+	sink := blockingSink{started: make(chan struct{}, 1), release: release}
+	config := testPipelineConfig()
+	config.Workers, config.Buffer = 1, 0
+	pipeline, err := NewPipeline(source, sink, config, nil)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- pipeline.Run(context.Background()) }()
+	<-sink.started
+	<-source.received
+	<-source.received
+	select {
+	case received := <-source.received:
+		t.Fatalf("received delivery %d while worker was blocked", received)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestPipelineShutdownDrainsInFlightDelivery(t *testing.T) {
+	delivery := &memoryDelivery{event: Event[string]{Metadata: Metadata{ID: "one"}}}
+	source := &trackingSource{deliveries: []*memoryDelivery{delivery}, received: make(chan int, 1), blockAfter: true}
+	release := make(chan struct{})
+	sink := blockingSink{started: make(chan struct{}, 1), release: release}
+	pipeline, err := NewPipeline(source, sink, testPipelineConfig(), nil)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	runDone := make(chan error, 1)
+	go func() { runDone <- pipeline.Run(context.Background()) }()
+	<-sink.started
+	shutdownDone := make(chan error, 1)
+	go func() { shutdownDone <- pipeline.Shutdown(context.Background()) }()
+	select {
+	case err := <-shutdownDone:
+		t.Fatalf("Shutdown returned before drain: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-shutdownDone; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if delivery.acked != 1 {
+		t.Fatalf("ack = %d, want 1", delivery.acked)
+	}
+}

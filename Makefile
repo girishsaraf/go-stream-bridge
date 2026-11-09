@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X main.commit=$(COMMIT) \
 	-X main.buildDate=$(DATE)
 
-.PHONY: all build test test-unit test-integration lint fmt vet coverage clean docker compose-up compose-down
+.PHONY: all build test test-unit test-chaos test-integration lint fmt vet coverage clean docker compose-up compose-down
 
 all: lint test build
 
@@ -22,12 +22,16 @@ test: test-unit
 test-unit:
 	go test -race ./...
 
+test-chaos:
+	go test -race -tags chaos ./test/chaos
+
 test-integration:
 	./scripts/test-integration.sh
 
 lint:
 	go vet ./...
 	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run
 
 fmt:
 	gofmt -w .

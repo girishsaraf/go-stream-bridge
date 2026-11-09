@@ -40,8 +40,14 @@ jobs:
       - name: Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
+      - name: Lint
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run
+
       - name: Test
         run: go test -race -count=1 ./...
+
+      - name: Chaos contracts
+        run: go test -race -count=1 -tags chaos ./test/chaos
 
   integration:
     runs-on: ubuntu-latest
