@@ -89,7 +89,7 @@ for a runnable, infrastructure-free SDK example.
 
 ## Requirements
 
-- Go 1.26.10 or newer.
+- Go 1.27.3 or newer.
 - CGO and the system libraries required by `confluent-kafka-go` (`libssl`, `libsasl2`, `zlib`, `libzstd`, `liblz4`, `libcurl`). The provided Dockerfile installs them.
 
 ## Quick start

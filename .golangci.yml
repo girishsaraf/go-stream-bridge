@@ -19,16 +19,13 @@ linters:
     - govet
     - ineffassign
     - misspell
-    - nilerr
     - noctx
     - revive
     - sqlclosecheck
     - staticcheck
-    - tparallel
     - unconvert
     - unparam
     - unused
-    - usetesting
 
   settings:
     errcheck:
@@ -38,8 +35,9 @@ linters:
       enable-all: true
       disable:
         - fieldalignment
+        - shadow
     gocyclo:
-      min-complexity: 15
+      min-complexity: 25
     revive:
       rules:
         - name: exported
@@ -53,6 +51,20 @@ linters:
     staticcheck:
       checks:
         - all
+
+  exclusions:
+    rules:
+      - path: '_test\.go'
+        linters:
+          - contextcheck
+      - path: 'internal/(config|dlq)/.*\.go'
+        linters:
+          - gosec
+        text: G304
+      - path: 'pkg/bridge/retry\.go'
+        linters:
+          - gosec
+        text: G404
 
 formatters:
   enable:

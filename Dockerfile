@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.26-bookworm AS build
+FROM golang:1.27.3-bookworm AS build
 
 # confluent-kafka-go statically links librdkafka but still links against the
 # system TLS, SASL, compression, and HTTP libraries.

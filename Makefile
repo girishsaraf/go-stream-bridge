@@ -31,7 +31,7 @@ test-integration:
 lint:
 	go vet ./...
 	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run
 
 fmt:
 	gofmt -w .

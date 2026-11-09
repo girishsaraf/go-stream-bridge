@@ -1,6 +1,6 @@
 module gostreambridge
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.16.1
