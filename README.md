@@ -146,6 +146,8 @@ The sink verifies connectivity at startup and indexes one document per message w
 | `dlq.type` | disabled | `kafka` or `file`. |
 
 Durations must be strings with units (`"30s"`, `"2m"`, `"500ms"`); bare numbers are rejected.
+Unknown configuration fields are rejected at startup, including fields nested inside
+`retry` and `dlq`, so misspelled deployment settings fail fast.
 
 ### Secrets and environment expansion
 

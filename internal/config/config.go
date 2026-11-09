@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -263,7 +264,7 @@ func Load[T Validator](path string) (T, error) {
 		return cfg, err
 	}
 
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := decode(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config %q: %w", path, err)
 	}
 
@@ -289,13 +290,31 @@ func LoadOptional[T Validator](path string, defaults T) (T, error) {
 	}
 
 	cfg := defaults
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := decode(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, fmt.Errorf("validate config %q: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func decode[T any](data []byte, target *T) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return nil
 }
 
 // LoadBridge loads optional bridge.json runtime tuning from dir.

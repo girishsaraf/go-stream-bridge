@@ -37,6 +37,40 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kafka.json")
+	content := `{"brokers":"localhost:9092","topic":"events","groupId":"bridge","brokerss":"typo"}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := Load[Kafka](path)
+	if err == nil {
+		t.Fatal("expected unknown field to fail")
+	}
+	if !strings.Contains(err.Error(), `parse config "`+path+`"`) ||
+		!strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected path and unknown-field details, got %v", err)
+	}
+}
+
+func TestLoadOptionalRejectsUnknownNestedFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bridge.json")
+	content := `{"workers":2,"retry":{"attempts":3,"baseDelay":"1s","maxDelay":"2s","baseDelays":"typo"}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	_, err := LoadBridge(dir)
+	if err == nil {
+		t.Fatal("expected unknown nested field to fail")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected unknown-field details, got %v", err)
+	}
+}
+
 func TestExpandEnv(t *testing.T) {
 	t.Setenv("STREAM_BRIDGE_TEST_SECRET", `p"a\ss`)
 

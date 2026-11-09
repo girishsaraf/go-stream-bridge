@@ -102,6 +102,22 @@ func (d *fakeDLQ) Close() error {
 	return nil
 }
 
+type blockingDLQ struct {
+	started chan struct{}
+	closed  bool
+}
+
+func (d *blockingDLQ) Write(ctx context.Context, _ dlq.Record) error {
+	close(d.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (d *blockingDLQ) Close() error {
+	d.closed = true
+	return nil
+}
+
 func testRuntime() config.Bridge {
 	cfg := config.DefaultBridge()
 	cfg.Buffer = 16
@@ -336,6 +352,49 @@ func TestRunGracefulShutdownLeavesInFlightMessageUnacked(t *testing.T) {
 
 	if ack.called {
 		t.Error("in-flight message must not be acknowledged during shutdown")
+	}
+}
+
+func TestRunGracefulShutdownDuringDLQWriteLeavesMessageUnacked(t *testing.T) {
+	message, ack := newAckMessage("poison")
+	src := &fakeSource{messages: []source.Message{message}, block: true}
+	dst := &fakeSink{writeFn: func(context.Context, []byte) error {
+		return sink.Permanent(errors.New("invalid message"))
+	}}
+	writer := &blockingDLQ{started: make(chan struct{})}
+
+	cfg := testRuntime()
+	cfg.FailurePolicy = config.FailurePolicyDLQ
+	cfg.DLQ = config.DLQ{Type: config.DLQTypeFile, Path: "/tmp/unused"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, src, dst, cfg, writer)
+	}()
+
+	select {
+	case <-writer.started:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("DLQ write was not started")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected graceful shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancellation")
+	}
+
+	if ack.called {
+		t.Error("message must remain unacknowledged when shutdown interrupts its DLQ write")
+	}
+	if !writer.closed {
+		t.Error("expected DLQ writer to be closed after workers stop")
 	}
 }
 
